@@ -23,6 +23,8 @@ jobs:
   windows:
     needs: test
     runs-on: windows-latest
+    permissions:
+      contents: write   # v* teglarida GitHub Release yaratish uchun
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,3 +48,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: TTYSI_Kadastr_Windows.zip
+          name: TTYSI Binolar kadastri ${{ github.ref_name }}
+          body: |
+            Windows uchun tayyor dastur.
+
+            O'rnatish: `TTYSI_Kadastr_Windows.zip` ni yuklab oling, arxivni oching
+            va `TTYSI_Kadastr\TTYSI_Kadastr.exe` ni ishga tushiring.
+            Internet kerak emas.
