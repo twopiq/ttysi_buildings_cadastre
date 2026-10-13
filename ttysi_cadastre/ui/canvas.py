@@ -8,13 +8,13 @@ from dataclasses import replace
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen,
                            QPixmap, QPolygonF)
-from PySide6.QtWidgets import (QGraphicsItem,
+from PySide6.QtWidgets import (QGraphicsItem, QInputDialog,
                                QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsPolygonItem,
                                QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem,
                                QGraphicsView, QMenu)
 
 from ..equipment import ROOM_KINDS, get_type
-from ..geometry import nearest_wall
+from ..geometry import nearest_wall, rotate_points
 from ..model import Door, Equipment, Floor, Room
 from ..render import (draw_door, draw_equipment_symbol, draw_stairs, label_px, meter_px, room_label,
                       symbol_radius, wall_width)
@@ -24,6 +24,19 @@ SELECT, ROOM_POLY, ROOM_RECT, EQUIP, SPLIT, SCALE, PAN, DOOR, STAIRS = (
     "select", "room_poly", "room_rect", "equip", "split", "scale", "pan", "door", "stairs")
 
 SNAP_PX = 10   # ekran piksellarida yopishish masofasi
+
+
+def add_rotate_menu(menu: QMenu) -> dict:
+    """"Aylantirish" ichki menyusi; {amal: burchak yoki "custom"} qaytaradi."""
+    sub = menu.addMenu("Aylantirish")
+    return {sub.addAction("90° o'ngga   ]"): 90.0, sub.addAction("90° chapga   ["): -90.0,
+            sub.addAction("180°"): 180.0, sub.addAction("Burchak kiritish..."): "custom"}
+
+
+def ask_angle(parent=None) -> float | None:
+    a, ok = QInputDialog.getDouble(parent, "Aylantirish",
+                                   "Burchak (gradus, + soat yo'nalishida, - teskari):", 90, -360, 360, 1)
+    return a if ok else None
 
 
 class VertexHandle(QGraphicsRectItem):
@@ -176,6 +189,15 @@ class RoomItem(QGraphicsPolygonItem):
         if emit and self.scene():
             self.scene().changed_model.emit()
 
+    def rotate(self, angle: float):
+        """Xonani o'z markazi atrofida aylantiradi."""
+        self.commit(emit=False)
+        self.room.points = rotate_points(self.room.points, angle)
+        self.setPolygon(QPolygonF([QPointF(x, y) for x, y in self.room.points]))
+        if self.isSelected():
+            self.show_handles(True)
+        self.update_label()
+
     def mouseDoubleClickEvent(self, event):
         self.insert_vertex_at(event.scenePos())
 
@@ -193,6 +215,7 @@ class RoomItem(QGraphicsPolygonItem):
             a.setChecked(k == self.room.kind)
             kinds[a] = k
         add_v = menu.addAction("Shu yerga burchak qo'shish")
+        rotations = add_rotate_menu(menu)
         menu.addSeparator()
         merge = menu.addAction("Tanlangan xonalarni birlashtirish")
         merge.setEnabled(len(scene.selected_rooms()) >= 2)
@@ -205,6 +228,8 @@ class RoomItem(QGraphicsPolygonItem):
             scene.changed_model.emit()
         elif act == add_v:
             self.insert_vertex_at(event.scenePos())
+        elif act in rotations:
+            scene.rotate_selected(rotations[act])
         elif act == merge:
             scene.request_merge.emit()
         elif act == delete:
@@ -262,6 +287,12 @@ class DoorItem(QGraphicsItem):
     def commit(self):
         self.door.x, self.door.y = self.pos().x(), self.pos().y()
 
+    def rotate(self, angle: float):
+        """Eshikni o'z markazi atrofida aylantiradi (masalan devor burchagida yoki qiya devorda)."""
+        self.prepareGeometryChange()
+        self.door.angle = (self.door.angle + angle) % 360
+        self.update()
+
     def contextMenuEvent(self, event):
         scene: FloorScene = self.scene()
         if not self.isSelected():
@@ -277,6 +308,7 @@ class DoorItem(QGraphicsItem):
         flip = menu.addAction("Ochilish tomonini almashtirish")
         mirror = menu.addAction("Sharnir tomonini almashtirish")
         mirror.setEnabled(self.door.leaves == 1)
+        rotations = add_rotate_menu(menu)
         sub = menu.addMenu("Kengligi")
         widths = {}
         m = meter_px(self.floor)
@@ -292,6 +324,9 @@ class DoorItem(QGraphicsItem):
             return
         if act == delete:
             scene.delete_selected()
+            return
+        if act in rotations:
+            scene.rotate_selected(rotations[act])
             return
         self.prepareGeometryChange()
         if act == single:
@@ -445,6 +480,20 @@ class FloorScene(QGraphicsScene):
         self.addItem(item)
         self.changed_model.emit()
         return item
+
+    def rotate_selected(self, angle) -> bool:
+        """Tanlangan xona, zina va eshiklarni har birini o'z markazi atrofida aylantiradi."""
+        items = [i for i in self.selectedItems() if isinstance(i, (RoomItem, DoorItem))]
+        if not items:
+            return False
+        if angle == "custom":
+            angle = ask_angle(self.views()[0] if self.views() else None)
+            if angle is None or angle == 0:
+                return False
+        for it in items:
+            it.rotate(angle)
+        self.changed_model.emit()
+        return True
 
     def add_door(self, pos: QPointF) -> "DoorItem":
         """Eshikni eng yaqin devorga qo'yadi (standart kenglik 0.9 m)."""

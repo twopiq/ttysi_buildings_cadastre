@@ -287,3 +287,45 @@ def test_doors_and_stairs(qapp, tmp_path):
     assert len(msp.query('LWPOLYLINE[layer=="ZINALAR"]')) > 10
     w.dirty = False
     w.close()
+
+
+def test_rotate_in_place(qapp, monkeypatch):
+    """Xona, zina va eshik o'z markazi atrofida aylanadi; bekor qilish ishlaydi."""
+    from PySide6.QtCore import QPointF
+    from ttysi_cadastre.ui import canvas
+    from ttysi_cadastre.ui.main_window import MainWindow
+    b, f = _sample()
+    room = f.rooms[0]                                   # 400x300, markazi (300, 250)
+    c0, a0 = room.centroid(), room.area()
+    w = MainWindow()
+    w.building = b
+    w.refresh_all()
+    item = next(i for i in w.scene.room_items() if i.room is room)
+    item.setSelected(True)
+    w.rotate_selected(90.0)
+    xs, ys = [p[0] for p in room.points], [p[1] for p in room.points]
+    assert (max(xs) - min(xs), max(ys) - min(ys)) == (300, 400)      # eni va bo'yi almashdi
+    assert room.centroid() == pytest.approx(c0) and room.area() == pytest.approx(a0)
+    w.undo()
+    room = f.rooms[0]
+    assert sorted(room.points) == sorted([(100, 100), (500, 100), (500, 400), (100, 400)])
+
+    # eshik: 180° - ochilish tomoni teskari, joyi o'zgarmaydi
+    d = w.scene.add_door(QPointF(300, 102)).door
+    x, y, a = d.x, d.y, d.angle
+    w.scene.clearSelection()
+    door_item = next(i for i in w.scene.items() if isinstance(i, canvas.DoorItem))
+    door_item.setSelected(True)
+    w.rotate_selected(180.0)
+    assert (d.x, d.y) == (x, y) and d.angle == pytest.approx((a + 180) % 360)
+
+    # istalgan burchak (dialog o'rniga 30°)
+    monkeypatch.setattr(canvas, "ask_angle", lambda parent=None: 30.0)
+    w.rotate_selected("custom")
+    assert d.angle == pytest.approx((a + 210) % 360)
+
+    # hech narsa tanlanmagan - o'zgarish yo'q
+    w.scene.clearSelection()
+    assert not w.scene.rotate_selected(90.0)
+    w.dirty = False
+    w.close()

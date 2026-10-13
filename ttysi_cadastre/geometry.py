@@ -79,11 +79,29 @@ def door_lines(door, wall: float) -> list[list[tuple[float, float]]]:
     return [_to_floor(door, ln) for ln in lines]
 
 
+def _orientation(poly: Polygon) -> float:
+    """Ko'pburchakning asosiy yo'nalishi (gradus): eng kichik buriluvchan to'rtburchakning tomoni."""
+    rect = list(poly.minimum_rotated_rectangle.exterior.coords)
+    (x0, y0), (x1, y1) = rect[0], rect[1]
+    a = math.degrees(math.atan2(y1 - y0, x1 - x0))
+    return ((a + 45) % 90) - 45   # -45..45 oralig'iga: 0 - to'g'ri turgan zina
+
+
 def stair_lines(points, step: float) -> list[list[tuple[float, float]]]:
-    """Zina pog'onalari (xonaning uzun tomoni bo'ylab) va yo'nalish strelkasi."""
+    """Zina pog'onalari (uzun tomoni bo'ylab) va yo'nalish strelkasi; burilgan zinada ham."""
     poly = Polygon(points).buffer(0)
     if poly.is_empty or step <= 0:
         return []
+    a = _orientation(poly)
+    if abs(a) > 0.5:
+        # burilgan zina: to'g'rilab hisoblaymiz va natijani qayta buramiz
+        c = poly.centroid
+        straight = rotate_points(list(poly.exterior.coords)[:-1], -a, (c.x, c.y))
+        return [rotate_points(ln, a, (c.x, c.y)) for ln in _stair_lines_axis(Polygon(straight), step)]
+    return _stair_lines_axis(poly, step)
+
+
+def _stair_lines_axis(poly: Polygon, step: float) -> list[list[tuple[float, float]]]:
     x0, y0, x1, y1 = poly.bounds
     horizontal = (x1 - x0) >= (y1 - y0)   # pog'onalar uzun tomonga tik
     out = []
@@ -126,3 +144,22 @@ def nearest_wall(rooms, x: float, y: float):
             if best is None or d < best[3]:
                 best = (px, py, math.degrees(math.atan2(dy, dx)), d)
     return best
+
+
+def rotate_points(points, angle: float, center=None) -> list[tuple[float, float]]:
+    """Nuqtalarni markaz atrofida aylantiradi (gradus; ekranda musbat - soat yo'nalishida).
+
+    Markaz berilmasa - ko'pburchakning og'irlik markazi (element joyida aylanadi).
+    """
+    if center is None:
+        c = Polygon(points).centroid
+        center = (c.x, c.y)
+    cx, cy = center
+    a = math.radians(angle)
+    ca, sa = math.cos(a), math.sin(a)
+    out = []
+    for x, y in points:
+        dx, dy = x - cx, y - cy
+        # 90° karrali burilishlarda kasr shovqinini yo'qotish (devorlar aniq tik qolsin)
+        out.append((round(cx + dx * ca - dy * sa, 6), round(cy + dx * sa + dy * ca, 6)))
+    return out

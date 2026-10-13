@@ -163,6 +163,11 @@ class MainWindow(QMainWindow):
         self._act(m, "Hammasini tanlash", self.select_all, QKeySequence.SelectAll)
         self._act(m, "Jihoz holatini almashtirish (mavjud / kerak)", self.toggle_status, QKeySequence("Ctrl+K"))
         self._act(m, "Tanlangan xonalarni birlashtirish", self.merge_selected, QKeySequence("Ctrl+M"))
+        rm = m.addMenu("Aylantirish (joyida)")
+        self._act(rm, "90° o'ngga", lambda: self.rotate_selected(90.0), QKeySequence("]"))
+        self._act(rm, "90° chapga", lambda: self.rotate_selected(-90.0), QKeySequence("["))
+        self._act(rm, "180°", lambda: self.rotate_selected(180.0))
+        self._act(rm, "Burchak kiritish...", lambda: self.rotate_selected("custom"), QKeySequence("Ctrl+Shift+R"))
         self._act(m, "Keyingi tasdiqlanmagan belgi", self.select_next_unknown, QKeySequence("N"))
 
         m = mb.addMenu("&Etaj")
@@ -519,6 +524,10 @@ class MainWindow(QMainWindow):
         it.eq.note = note
         it.refresh_tooltip()
         self.scene.changed_model.emit()
+
+    def rotate_selected(self, angle):
+        if not self.scene.rotate_selected(angle):
+            self.statusBar().showMessage("Aylantirish uchun xona, zina yoki eshikni tanlang.", 4000)
 
     def toggle_status(self):
         eqs = self.scene.selected_equipment()
@@ -972,6 +981,7 @@ Qora ruchkadagi belgilarni asboblar panelidan qo'lda qo'ying.</li>
 <b>V</b> — tanlash, <b>P</b> — xona (burchaklar), <b>R</b> — to'rtburchak xona, <b>B</b> — bo'lish<br>
 <b>D</b> — eshik (devorga bosing; o'ng tugma: bir/ikki tabaqali, ochilish tomoni, kengligi),
 <b>Z</b> — zina (maydonini torting)<br>
+<b>]</b> / <b>[</b> — tanlanganni joyida 90° o'ngga / chapga aylantirish, <b>Ctrl+Shift+R</b> — istalgan burchak<br>
 <b>F8</b> — orto rejim, <b>Shift</b> — orto rejimni vaqtincha teskarisiga<br>
 <b>G'ildirak</b> — kattalashtirish, <b>o'rta tugma / Probel+sudrash</b> — surish, <b>Ctrl+0</b> — butun chizma<br>
 <b>Ctrl+Z / Ctrl+Y</b> — bekor qilish / qaytarish, <b>Esc</b> — chizishni bekor qilish

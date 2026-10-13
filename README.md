@@ -59,6 +59,9 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
      kengligi (0.8–1.8 m);
    - `Z` — **zina**: maydonini to'rtburchak qilib torting. Ichida pog'onalar va yo'nalish strelkasi
      chiziladi.
+   - **Joyida aylantirish:** tanlangan xona, zina yoki eshik o'z markazi atrofida buriladi. `]` —
+     90° o'ngga, `[` — 90° chapga, `Ctrl+Shift+R` — istalgan burchak. O'ng tugma menyusida esa
+     "Aylantirish" bo'limi bor.
 5. **Mavjud va kerak jihozlar.** Har bir jihozning holati bor:
    - **Mavjud** — chizmada to'liq rangli belgi;
    - **Kerak (o'rnatilishi rejada)** — oq fonli, punktir chegarali belgi.
