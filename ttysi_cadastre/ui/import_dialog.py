@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QRectF, QSettings, QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QIcon, QImage, QPainter, QPen, QPixmap, QPolygonF
+from PySide6.QtCore import QPointF, QRectF, QSettings, QSize, Qt
+from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QImage, QPainter, QPen, QPixmap, QPolygonF, QTransform
 from PySide6.QtPdf import QPdfDocument
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFormLayout, QGraphicsEllipseItem, QGraphicsItem, QGraphicsPolygonItem,
-                               QGraphicsRectItem, QGraphicsScene, QGraphicsView, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget,
-                               QListWidgetItem, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+                               QFormLayout, QFrame, QGraphicsEllipseItem, QGraphicsItem, QGraphicsPolygonItem,
+                               QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView,
+                               QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget,
+                               QListWidgetItem, QPushButton, QSlider, QSpinBox, QToolButton, QVBoxLayout,
+                               QWidget)
 
 from ..detection import DetectParams, find_paper_corners, warp_to_rect
+from . import theme
 
 
 def cv_to_qimage(img: np.ndarray) -> QImage:
@@ -199,11 +201,37 @@ class ParamsWidget(QGroupBox):
 
 # ======================================================================== kesib olish va perspektiva
 
+IMPORT_STYLE = f"""
+QDialog {{ background: {theme.BG}; }}
+QFrame#importTop {{ background: {theme.SURFACE}; border-bottom: 1px solid {theme.LINE}; }}
+QPushButton#back {{ border: none; background: transparent; color: {theme.PRIMARY}; font-weight: 600; padding: 0 4px; }}
+QLabel#title {{ font-weight: 600; font-size: 16px; }}
+QFrame#pages, QFrame#side {{ background: {theme.SURFACE}; }}
+QFrame#pages {{ border-right: 1px solid {theme.LINE}; }}
+QFrame#side {{ border-left: 1px solid {theme.LINE}; }}
+QLabel#section {{ font-size: 12px; font-weight: 600; color: {theme.INK_3}; }}
+QLabel#fieldLabel {{ font-size: 13px; color: {theme.INK_2}; }}
+QLabel#muted {{ color: {theme.INK_2}; font-size: 13px; }}
+QLabel#ok {{ color: {theme.OK_FG}; font-size: 12px; }}
+QListWidget#pageList {{ border: none; background: transparent; }}
+QListWidget#pageList::item {{ border: 1px solid {theme.LINE}; border-radius: 6px; padding: 4px; margin: 2px; color: {theme.INK_2}; }}
+QListWidget#pageList::item:selected {{ border: 2px solid {theme.PRIMARY}; background: {theme.SURFACE}; color: {theme.PRIMARY_DARK}; }}
+QFrame#autoCard, QFrame#advanced {{ border: 1px solid {theme.LINE}; border-radius: 10px; background: {theme.SURFACE}; }}
+QToolButton#expander {{ border: none; font-weight: 600; background: transparent; }}
+QPushButton#primary {{ min-height: 48px; font-size: 15px; border-radius: 10px; }}
+QPushButton#secondary {{ min-height: 44px; border-radius: 10px; }}
+QPushButton#tool {{ min-height: 30px; padding: 0 10px; font-weight: 500; }}
+QGroupBox {{ border: none; margin-top: 0; padding-top: 0; font-weight: 600; }}
+"""
+
+HANDLE_COLOR = QColor(theme.PRIMARY)
+
+
 class CornerHandle(QGraphicsEllipseItem):
     def __init__(self, dialog: "ImportDialog"):
         super().__init__(-8, -8, 16, 16)
         self.dialog = dialog
-        self.setBrush(QBrush(QColor(229, 57, 53, 200)))
+        self.setBrush(QBrush(HANDLE_COLOR))
         self.setPen(QPen(QColor("white"), 2))
         self.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIgnoresTransformations
                       | QGraphicsItem.ItemSendsGeometryChanges)
@@ -225,6 +253,7 @@ class CropView(QGraphicsView):
         self.start = None
         self.band: QGraphicsRectItem | None = None
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setFrameShape(QFrame.NoFrame)
 
     def wheelEvent(self, event):
         f = 1.0015 ** event.angleDelta().y()
@@ -256,108 +285,282 @@ class CropView(QGraphicsView):
 
     @staticmethod
     def _pen():
-        pen = QPen(QColor("#1e88e5"), 2, Qt.DashLine)
+        pen = QPen(HANDLE_COLOR, 2, Qt.DashLine)
         pen.setCosmetic(True)
         return pen
 
 
+def _field(label: str, widget: QWidget) -> QWidget:
+    w = QWidget()
+    lay = QVBoxLayout(w)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(4)
+    lab = QLabel(label)
+    lab.setObjectName("fieldLabel")
+    lay.addWidget(lab)
+    lay.addWidget(widget)
+    return w
+
+
 class ImportDialog(QDialog):
-    def __init__(self, img: np.ndarray, floor_name: str, parent=None,
-                 paper_mm_per_px: float | None = None, from_pdf: bool = False):
+    """Etaj qo'shish ekrani: (PDF bo'lsa) sahifalar, etajni ramkaga olish, nisbat va avtomatik chizish.
+
+    PDF uchun doc berilsa, sahifalar chap tomonda ko'rinadi va ular orasida o'tish mumkin.
+    again - "Yaratish va shu PDF'dan yana etaj" bosilgan.
+    """
+
+    def __init__(self, img: np.ndarray | None, floor_name: str, parent=None,
+                 paper_mm_per_px: float | None = None, from_pdf: bool = False,
+                 doc: QPdfDocument | None = None, page: int = 0, file_name: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("Etajni yuklash")
-        self.resize(1250, 820)
-        self.img = img
+        self.setWindowTitle("Etaj qo'shish")
+        self.setStyleSheet(IMPORT_STYLE)
+        self.resize(1360, 860)
+        self.doc = doc
+        self.again = False
         self.paper_mm_per_px = paper_mm_per_px
         self.settings = QSettings("TTYSI", "BinolarKadastr")
+        from_pdf = from_pdf or doc is not None
 
         self.scene = QGraphicsScene(self)
         self.view = CropView(self.scene, self)
         self.view.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
-        self.view.setBackgroundBrush(QColor("#37474f"))
+        self.view.setBackgroundBrush(QColor("#3A4552"))
         self.pix = self.scene.addPixmap(QPixmap())
         self.outline = QGraphicsPolygonItem()
-        pen = QPen(QColor("#e53935"), 2)
+        pen = QPen(HANDLE_COLOR, 2)
         pen.setCosmetic(True)
         self.outline.setPen(pen)
-        self.outline.setBrush(QColor(229, 57, 53, 25))
+        self.outline.setBrush(QColor(28, 91, 166, 26))
         self.scene.addItem(self.outline)
+        self.size_tag = QGraphicsSimpleTextItem()
+        self.size_tag.setBrush(QColor("white"))
+        self.size_tag.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        self.size_tag.setZValue(11)
+        f = theme.font(12, QFont.DemiBold)
+        self.size_tag.setFont(f)
+        self.size_bg = self.scene.addRect(QRectF(), QPen(Qt.NoPen), QBrush(HANDLE_COLOR))
+        self.size_bg.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        self.size_bg.setZValue(10.5)
+        self.scene.addItem(self.size_tag)
         self.handles = [CornerHandle(self) for _ in range(4)]
         for h in self.handles:
             self.scene.addItem(h)
 
-        side = QVBoxLayout()
-        form = QFormLayout()
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        top = QFrame()
+        top.setObjectName("importTop")
+        tl = QHBoxLayout(top)
+        tl.setContentsMargins(24, 12, 24, 12)
+        tl.setSpacing(20)
+        back = QPushButton("‹  Bekor qilish")
+        back.setObjectName("back")
+        back.clicked.connect(self.reject)
+        tl.addWidget(back)
+        title = QLabel("Etaj qo'shish" + (f" · {file_name}" if file_name else ""))
+        title.setObjectName("title")
+        tl.addWidget(title)
+        tl.addStretch()
+        root.addWidget(top)
+
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        root.addLayout(body, 1)
+
+        # --- PDF sahifalari
+        self.page_list = None
+        if doc is not None:
+            nav = QFrame()
+            nav.setObjectName("pages")
+            nav.setFixedWidth(176)
+            nl = QVBoxLayout(nav)
+            nl.setContentsMargins(12, 16, 12, 16)
+            nl.setSpacing(12)
+            lab = QLabel("SAHIFALAR")
+            lab.setObjectName("section")
+            nl.addWidget(lab)
+            self.page_list = QListWidget()
+            self.page_list.setObjectName("pageList")
+            self.page_list.setIconSize(QSize(126, 96))
+            self.page_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.page_list.setViewMode(QListView.IconMode)
+            self.page_list.setFlow(QListView.TopToBottom)
+            self.page_list.setMovement(QListView.Static)
+            self.page_list.setWrapping(False)
+            self.page_list.setSpacing(4)
+            for i in range(doc.pageCount()):
+                s = doc.pagePointSize(i)
+                k = 126 / max(s.width(), s.height())
+                thumb = doc.render(i, QSize(int(s.width() * k), int(s.height() * k)))
+                self.page_list.addItem(QListWidgetItem(QIcon(QPixmap.fromImage(thumb)), f"{i + 1}-sahifa"))
+            nl.addWidget(self.page_list, 1)
+            body.addWidget(nav)
+
+        # --- rasm va ramka
+        center = QVBoxLayout()
+        center.setContentsMargins(20, 20, 20, 20)
+        center.setSpacing(12)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        t1 = QLabel("<b>Etajni sichqoncha bilan ramkaga oling</b>")
+        t2 = QLabel("— bitta sahifada bir nechta etaj bo'lsa, faqat keraklisini. "
+                    "Telefon rasmida nuqtalarni qog'oz burchaklariga sudrang.")
+        t2.setObjectName("muted")
+        t2.setWordWrap(True)
+        row.addWidget(t1)
+        row.addWidget(t2, 1)
+        center.addLayout(row)
+        tools = QHBoxLayout()
+        tools.setSpacing(6)
+        for text, slot in (("Qog'ozni topish", self.auto_corners), ("Butun sahifa", self.full_corners),
+                           ("⟲ 90°", lambda: self.rotate(cv2.ROTATE_90_COUNTERCLOCKWISE)),
+                           ("⟳ 90°", lambda: self.rotate(cv2.ROTATE_90_CLOCKWISE))):
+            b = QPushButton(text)
+            b.setObjectName("tool")
+            b.clicked.connect(slot)
+            tools.addWidget(b)
+        tools.addStretch()
+        hint = QLabel("G'ildirak — kattalashtirish")
+        hint.setObjectName("muted")
+        tools.addWidget(hint)
+        center.addLayout(tools)
+        frame = QFrame()
+        frame.setStyleSheet("QFrame { background: #3A4552; border-radius: 12px; }")
+        fl = QVBoxLayout(frame)
+        fl.setContentsMargins(8, 8, 8, 8)
+        fl.addWidget(self.view)
+        center.addWidget(frame, 1)
+        body.addLayout(center, 1)
+
+        # --- sozlamalar
+        side = QFrame()
+        side.setObjectName("side")
+        side.setFixedWidth(360)
+        sl = QVBoxLayout(side)
+        sl.setContentsMargins(20, 20, 20, 20)
+        sl.setSpacing(16)
         self.name = QLineEdit(floor_name)
-        form.addRow("Etaj nomi:", self.name)
+        sl.addWidget(_field("Etaj nomi", self.name))
         self.scale = QSpinBox()
         self.scale.setRange(0, 10000)
         self.scale.setPrefix("1 : ")
         self.scale.setSpecialValueText("noma'lum")
-        self.scale.setValue(int(self.settings.value("last_scale", 300)) if paper_mm_per_px else 0)
-        self.scale.setEnabled(paper_mm_per_px is not None)
+        self.scale.setButtonSymbols(QSpinBox.NoButtons)
+        self.scale.setValue(int(self.settings.value("last_scale", 300)) if paper_mm_per_px or from_pdf else 0)
         self.scale.setToolTip("Kadastr shtampidagi \"Нисбат\" (masalan 1:300 yoki 1:400)")
-        form.addRow("Nisbat:", self.scale)
-        side.addLayout(form)
-        if paper_mm_per_px is None:
-            lab = QLabel("Rasmda qog'oz o'lchami yo'q - masshtabni keyin \"Etaj → Masshtabni belgilash\" "
-                         "orqali bering.")
-            lab.setWordWrap(True)
-            lab.setStyleSheet("color: #616161")
-            side.addWidget(lab)
+        sw = _field("Nisbat (shtampdagi \"Нисбат\")", self.scale)
+        self.scale_hint = QLabel()
+        self.scale_hint.setWordWrap(True)
+        sw.layout().addWidget(self.scale_hint)
+        sl.addWidget(sw)
 
-        crop = QGroupBox("Etaj chegarasi")
-        pl = QVBoxLayout(crop)
-        lab = QLabel("Etajni sichqoncha bilan <b>ramkaga oling</b> (bitta sahifada bir nechta etaj "
-                     "bo'lsa, faqat keraklisini). Telefon rasmida qizil nuqtalarni qog'oz "
-                     "burchaklariga sudrang. G'ildirak - kattalashtirish.")
-        lab.setWordWrap(True)
-        pl.addWidget(lab)
-        row = QHBoxLayout()
-        b_auto = QPushButton("Qog'ozni topish")
-        b_auto.clicked.connect(self.auto_corners)
-        b_full = QPushButton("Butun rasm")
-        b_full.clicked.connect(self.full_corners)
-        row.addWidget(b_auto)
-        row.addWidget(b_full)
-        pl.addLayout(row)
-        row = QHBoxLayout()
-        b_l = QPushButton("⟲ 90°")
-        b_l.clicked.connect(lambda: self.rotate(cv2.ROTATE_90_COUNTERCLOCKWISE))
-        b_r = QPushButton("⟳ 90°")
-        b_r.clicked.connect(lambda: self.rotate(cv2.ROTATE_90_CLOCKWISE))
-        row.addWidget(b_l)
-        row.addWidget(b_r)
-        pl.addLayout(row)
-        side.addWidget(crop)
-
-        self.auto = QCheckBox("Chizmani avtomatik chizish")
+        card = QFrame()
+        card.setObjectName("autoCard")
+        cl = QHBoxLayout(card)
+        cl.setContentsMargins(12, 12, 12, 12)
+        cl.setSpacing(10)
+        self.auto = QCheckBox()
         self.auto.setChecked(True)
-        side.addWidget(self.auto)
-        self.params_w = ParamsWidget(metric=self.m_per_px() is not None)
-        self.scale.valueChanged.connect(lambda _: self.params_w.set_metric(self.m_per_px() is not None))
+        cl.addWidget(self.auto, 0, Qt.AlignTop)
+        tc = QVBoxLayout()
+        tc.setSpacing(2)
+        at = QLabel("<b>Chizmani avtomatik chizish</b>")
+        ad = QLabel("Xonalar, koridorlar va ko'k ruchkadagi belgilar topiladi va raqamlanadi.")
+        ad.setObjectName("muted")
+        ad.setWordWrap(True)
+        for w in (at, ad):
+            w.mousePressEvent = lambda e: self.auto.toggle()
+            tc.addWidget(w)
+        cl.addLayout(tc, 1)
+        sl.addWidget(card)
+
+        adv = QFrame()
+        adv.setObjectName("advanced")
+        al = QVBoxLayout(adv)
+        al.setContentsMargins(12, 8, 12, 8)
+        self.expander = QToolButton()
+        self.expander.setObjectName("expander")
+        self.expander.setText("Kengaytirilgan sozlamalar")
+        self.expander.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.expander.setArrowType(Qt.RightArrow)
+        self.expander.setCheckable(True)
+        al.addWidget(self.expander)
+        self.adv_body = QWidget()
+        bl = QVBoxLayout(self.adv_body)
+        bl.setContentsMargins(0, 4, 0, 4)
+        self.params_w = ParamsWidget(metric=False)
+        self.params_w.setTitle("")
+        bl.addWidget(self.params_w)
+        self.dpi = QComboBox()
+        for d in (150, 200, 300):
+            self.dpi.addItem(f"{d} DPI", d)
+        self.dpi.setCurrentIndex(1)
+        if doc is not None:
+            bl.addWidget(_field("PDF aniqligi", self.dpi))
+        self.adv_body.hide()
+        al.addWidget(self.adv_body)
+        self.expander.toggled.connect(self._toggle_advanced)
         self.auto.toggled.connect(self.params_w.setEnabled)
-        side.addWidget(self.params_w)
-        side.addStretch()
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("Davom etish")
-        buttons.button(QDialogButtonBox.Cancel).setText("Bekor qilish")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        side.addWidget(buttons)
+        sl.addWidget(adv)
+        sl.addStretch()
 
-        lay = QHBoxLayout(self)
-        lay.addWidget(self.view, 1)
-        sw = QWidget()
-        sw.setLayout(side)
-        sw.setFixedWidth(380)
-        lay.addWidget(sw)
+        self.b_create = QPushButton("Chizmani yaratish")
+        self.b_create.setObjectName("primary")
+        self.b_create.setDefault(True)
+        self.b_create.clicked.connect(self.accept)
+        sl.addWidget(self.b_create)
+        if doc is not None:
+            b = QPushButton("Yaratish va shu PDF'dan yana etaj")
+            b.setObjectName("secondary")
+            b.clicked.connect(self.accept_again)
+            sl.addWidget(b)
+        body.addWidget(side)
 
-        self.set_image(img)
-        if from_pdf:
-            self.full_corners()
+        self.scale.valueChanged.connect(self.update_scale)
+        self.name.textChanged.connect(lambda _: self.update_outline())
+        self.img = None
+        if doc is not None:
+            self.page_list.currentRowChanged.connect(self.load_page)
+            self.dpi.currentIndexChanged.connect(lambda _: self.load_page(self.page()))
+            self.page_list.setCurrentRow(min(max(page, 0), doc.pageCount() - 1))
         else:
-            self.auto_corners()
+            self.set_image(img)
+            if from_pdf:
+                self.full_corners()
+            else:
+                self.auto_corners()
+        self.update_scale()
+
+    # --- PDF sahifalari
+    def page(self) -> int:
+        return max(0, self.page_list.currentRow()) if self.page_list is not None else 0
+
+    def load_page(self, i: int):
+        if self.doc is None or i < 0:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            dpi = self.dpi.currentData()
+            s = self.doc.pagePointSize(i)
+            img = self.doc.render(i, QSize(round(s.width() / 72 * dpi), round(s.height() / 72 * dpi)))
+            out = QImage(img.size(), QImage.Format_RGB888)
+            out.fill(QColor("white"))
+            p = QPainter(out)
+            p.drawImage(0, 0, img)
+            p.end()
+            self.paper_mm_per_px = 25.4 / dpi
+            self.set_image(qimage_to_cv(out))
+            self.full_corners()
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.update_scale()
+
+    def _toggle_advanced(self, on: bool):
+        self.expander.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
+        self.adv_body.setVisible(on)
 
     # --- masshtab
     def m_per_px(self) -> float | None:
@@ -366,10 +569,32 @@ class ImportDialog(QDialog):
             return None
         return self.paper_mm_per_px * self.scale.value() / 1000.0
 
+    def update_scale(self, *_):
+        mpp = self.m_per_px()
+        self.scale.setEnabled(self.paper_mm_per_px is not None)
+        self.params_w.set_metric(mpp is not None)
+        if mpp:
+            self.scale_hint.setObjectName("ok")
+            self.scale_hint.setText(f"✓ Masshtab hisoblandi: 1 px = {mpp * 100:.1f} sm")
+        elif self.paper_mm_per_px is None:
+            self.scale_hint.setObjectName("muted")
+            self.scale_hint.setText("Rasmda qog'oz o'lchami yo'q — masshtabni keyin "
+                                    "\"Etaj → Masshtabni belgilash\" orqali bering.")
+        else:
+            self.scale_hint.setObjectName("muted")
+            self.scale_hint.setText("Nisbatni kiriting — maydonlar m² da hisoblanadi.")
+        self.scale_hint.style().unpolish(self.scale_hint)
+        self.scale_hint.style().polish(self.scale_hint)
+        self.update_outline()
+
     def accept(self):
         if self.scale.value() > 0:
             self.settings.setValue("last_scale", self.scale.value())
         super().accept()
+
+    def accept_again(self):
+        self.again = True
+        self.accept()
 
     # --- rasm va burchaklar
     def set_image(self, img):
@@ -406,7 +631,23 @@ class ImportDialog(QDialog):
         self.full_corners()
 
     def update_outline(self):
-        self.outline.setPolygon(QPolygonF([h.pos() for h in self.handles]))
+        poly = QPolygonF([h.pos() for h in self.handles])
+        self.outline.setPolygon(poly)
+        mpp = self.m_per_px() if hasattr(self, "scale") else None
+        name = self.name.text().strip() if hasattr(self, "name") else ""
+        r = poly.boundingRect()
+        text = name
+        if mpp and r.width() > 0:
+            text += f" · {r.width() * mpp:.0f} × {r.height() * mpp:.0f} m"
+        self.size_tag.setText(text)
+        br = self.size_tag.boundingRect()
+        anchor = QPointF(r.left(), r.bottom())
+        self.size_tag.setPos(anchor)
+        self.size_tag.setTransform(QTransform.fromTranslate(8, 11))
+        self.size_bg.setPos(anchor)
+        self.size_bg.setRect(QRectF(0, 8, br.width() + 16, br.height() + 6))
+        self.size_bg.setVisible(bool(text))
+        self.size_tag.setVisible(bool(text))
 
     def corners(self):
         return [(h.pos().x(), h.pos().y()) for h in self.handles]

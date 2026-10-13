@@ -34,13 +34,33 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
 - `103-x` kabi yozuvlar — **xona raqami** (103-xona). U xonaning nomiga yoziladi.
 - "Kompyuter xona" — jihoz emas, **xona turi**: o'ng tugma → Turi → Kompyuter xona.
 
+## Dastur oynalari
+
+- **Bosh sahifa** — dastur ochilganda chiqadi. Oxirgi binolar kartalarda ko'rinadi: etajlar soni,
+  tayyor etajlar, tasdiqlanmagan belgilar va jihozlar soni. Kartani bosib loyihani ochasiz,
+  **Yangi bino** — yangi loyiha va darhol PDF/rasm yuklash. PDF yoki rasmni oynaga sudrab tashlash ham
+  mumkin. Kartada o'ng tugma — ro'yxatdan olib tashlash. Muharrirdan qaytish: chap yuqoridagi **AT**
+  belgisi yoki `Ctrl+H`.
+- **Muharrir** — yuqorida bino nomi (✎ — nomi va manzili), **etaj tablari** (to'q sariq son —
+  tasdiqlanmagan belgilar; o'ng tugma — nomini o'zgartirish, surish, qayta chizish, o'chirish),
+  `+ Etaj`, bekor qilish/qaytarish va **Eksport**. Ostida **4 ta ish bosqichi** (rasm → xonalar →
+  belgilar → eksport) — har birini bosib shu bosqichga o'tasiz. Chapda asboblar va rangli AT jihoz
+  tugmalari, o'rtada chizma (kadastr foni, kattalashtirish), o'ngda tanlangan element xususiyatlari va
+  etaj bo'yicha jihozlar soni.
+- **Etaj qo'shish ekrani** — PDF bo'lsa, chapda sahifalar; o'rtada etajni ramkaga olasiz (ramka ostida
+  etaj o'lchami metrda chiqadi); o'ngda etaj nomi, nisbat, avtomatik chizish va kengaytirilgan
+  sozlamalar. **Yaratish va shu PDF'dan yana etaj** — keyingi etajni darhol qo'shish.
+- **Eksport oynasi** — format (PDF, PNG/JPG, DXF, Excel, SVG, bir nechta bino bo'yicha Excel), joriy yoki
+  barcha etajlar, chizma sozlamalari. Tasdiqlanmagan belgilar bo'lsa ogohlantiradi.
+
 ## Ish tartibi
 
-1. **Etaj → PDF / rasmdan yangi etaj qo'shish (Ctrl+I).**
-   - **PDF:** sahifani tanlaysiz. Bitta sahifada bir nechta etaj bo'lsa, keraklisini sichqoncha bilan
-     ramkaga olasiz. Shtampdagi **Nisbat**ni (masalan 1:300) kiritsangiz, masshtab avtomatik hisoblanadi
-     va maydonlar m² da chiqadi. Bitta PDF'dan bir nechta etajni ketma-ket qo'shish mumkin.
-   - **Telefon rasmi:** dastur qog'oz burchaklarini o'zi topadi va perspektivani to'g'rilaydi. Qizil
+1. **Etaj qo'shish:** `+ Etaj` yoki **Etaj → PDF / rasmdan yangi etaj qo'shish (Ctrl+I).**
+   - **PDF:** chapdagi sahifalardan keraklisini tanlaysiz. Bitta sahifada bir nechta etaj bo'lsa,
+     keraklisini sichqoncha bilan ramkaga olasiz. Shtampdagi **Nisbat**ni (masalan 1:300) kiritsangiz,
+     masshtab avtomatik hisoblanadi va maydonlar m² da chiqadi. Bitta PDF'dan bir nechta etajni
+     ketma-ket qo'shish mumkin.
+   - **Telefon rasmi:** dastur qog'oz burchaklarini o'zi topadi va perspektivani to'g'rilaydi. Ko'k
      nuqtalarni qo'lda ham surish mumkin. Masshtabni keyin "Masshtabni belgilash" orqali berasiz.
 2. **Avtomatik chizish.** Dastur devorlarni topib, xonalar va koridorlarni ko'pburchak qilib chizadi
    va **raqamlaydi** (keyin qo'lda tuzatiladi). **Ko'k ruchka** izlarini esa `?` belgisi bilan AT
@@ -96,9 +116,10 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
    kompyuterda saqlanib qoladi. Bu yerda yozilgan tugmalar — standart qiymatlar.
 7. **Masshtab (Etaj menyusi).** Uzunligi ma'lum devorni belgilasangiz, maydonlar m² da chiqadi va DXF
    metrlarda saqlanadi.
-8. **Fayl → Eksport:**
-   - PNG / JPG va SVG;
-   - PDF (joriy etaj yoki barcha etajlar);
+8. **Eksport** (yuqoridagi tugma yoki `Ctrl+E`):
+   - PNG / JPG va SVG (barcha etajlar tanlansa — har etaj alohida fayl, tanlangan papkaga);
+   - PDF (joriy etaj yoki barcha etajlar bitta faylda);
+   - "Rejadagi (kerak) jihozlar" belgisini olib tashlasangiz, faqat mavjud jihozlar chiqadi;
    - DXF (AutoCAD; qatlamlar `XONA_*` va `AT_*`, jihozlar bloklar sifatida);
    - **Excel hisobot** — joriy bino yoki bir nechta bino (`.ttysi` fayllar) bo'yicha: etajlar
      kesimida mavjud jihozlar soni, har bir xonadagi jihozlar, jihozlarning to'liq ro'yxati va

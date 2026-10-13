@@ -27,7 +27,7 @@ from .export_dialog import ExportDialog
 from .home import HomePage, remember
 from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, WALL, EquipmentItem,
                      FloorScene, FloorView, RoomItem, WallItem)
-from .import_dialog import ImportDialog, PdfPageDialog, RedetectDialog, image_paper_mm_per_px
+from .import_dialog import ImportDialog, RedetectDialog, image_paper_mm_per_px
 from .review_dialog import ReviewDialog
 from .shortcuts import ShortcutsDialog, display, registry
 from .update_dialog import Updater, UpdateSettingsDialog, load_settings
@@ -1151,7 +1151,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Xato", str(e))
             return
-        self.import_floor(img, image_paper_mm_per_px(path), from_pdf=False)
+        self.import_floor(img, image_paper_mm_per_px(path), from_pdf=False, file_name=os.path.basename(path))
 
     def add_floors_from_pdf(self, path: str):
         """PDF: sahifa tanlanadi, undan etaj kesib olinadi; bir nechta etajni ketma-ket qo'shish mumkin."""
@@ -1160,21 +1160,23 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Xato", "PDF faylni ochib bo'lmadi.")
             return
         page = 0
-        while True:
-            pd = PdfPageDialog(doc, self, current=page)
-            if pd.exec() != QDialog.Accepted:
-                break
-            page = pd.page()
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            try:
-                img, mm_per_px = pd.render()
-            finally:
-                QApplication.restoreOverrideCursor()
-            self.import_floor(img, mm_per_px, from_pdf=True)
-        doc.close()
+        try:
+            while True:
+                dlg = ImportDialog(None, self.next_floor_name(), self, doc=doc, page=page,
+                                   file_name=os.path.basename(path))
+                if not self.create_floor(dlg) or not dlg.again:
+                    break
+                page = dlg.page()
+        finally:
+            doc.close()
 
-    def import_floor(self, img, paper_mm_per_px, from_pdf: bool) -> bool:
-        dlg = ImportDialog(img, self.next_floor_name(), self, paper_mm_per_px=paper_mm_per_px, from_pdf=from_pdf)
+    def import_floor(self, img, paper_mm_per_px, from_pdf: bool, file_name: str = "") -> bool:
+        dlg = ImportDialog(img, self.next_floor_name(), self, paper_mm_per_px=paper_mm_per_px,
+                           from_pdf=from_pdf, file_name=file_name)
+        return self.create_floor(dlg)
+
+    def create_floor(self, dlg: ImportDialog) -> bool:
+        """Import oynasini ko'rsatadi va natijadan etaj yaratadi."""
         if dlg.exec() != QDialog.Accepted:
             return False
         QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -1196,8 +1198,9 @@ class MainWindow(QMainWindow):
         self.building.floors.append(floor)
         self.refresh_floor_list(select=len(self.building.floors) - 1)
         self.set_dirty()
+        self.pages.setCurrentWidget(self.editor)
         self.statusBar().showMessage(msg, 10000)
-        if any(e.code == "?" for e in floor.equipment):
+        if any(e.code == "?" for e in floor.equipment) and not dlg.again:
             QTimer.singleShot(300, self.open_review)
         return True
 
@@ -1512,7 +1515,7 @@ class MainWindow(QMainWindow):
 <h3>Ish tartibi</h3>
 <ol>
 <li>{k('floor.import')} — kadastr rasmini yuklang (skaner yoki telefon rasmi).
-Telefon rasmi bo'lsa, qizil nuqtalarni qog'oz burchaklariga moslang.</li>
+Telefon rasmi bo'lsa, ko'k nuqtalarni qog'oz burchaklariga moslang.</li>
 <li>Dastur xonalar, koridorlar va <b>ko'k ruchka</b> belgilarini taxminiy topadi.
 Topilgan belgilar <b>?</b> bo'lib turadi va <b>tasdiqlash ekrani</b> ochiladi ({k('review.open')}):
 har bir belgining asl rasmi ko'rsatiladi, turini bitta tugma bilan bering, {k('edit.delete')} — belgi emas,
