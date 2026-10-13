@@ -17,13 +17,15 @@ from .. import __version__
 from ..detection import DetectParams, decode_image, detect, encode_jpg, limit_size, read_image
 from ..equipment import BY_KEY, EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN
 from ..export import export_dxf, export_image, export_pdf, export_svg
-from ..report import export_excel
 from ..geometry import merge_rooms, split_room
 from ..model import Building, Equipment, Floor, Room
 from ..render import RenderOptions, draw_equipment_symbol, equipment_counts, wall_width
+from ..report import export_excel
+from ..updater import is_frozen
 from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, EquipmentItem,
                      FloorScene, FloorView, RoomItem)
 from .import_dialog import ImportDialog, PdfPageDialog, RedetectDialog, image_paper_mm_per_px
+from .update_dialog import Updater, UpdateSettingsDialog, load_settings
 
 FILE_FILTER = "TTYSI kadastr loyihasi (*.ttysi)"
 IMAGE_FILTER = "Kadastr hujjati (*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
@@ -120,12 +122,16 @@ class MainWindow(QMainWindow):
         self.view.scale_requested.connect(self.set_scale)
         self.view.digit_pressed = self.on_digit
 
+        self.updater = Updater(self)
         self.build_actions()
         self.build_floor_dock()
         self.build_props_dock()
         self.resize(1400, 900)
         self.refresh_all()
         self.select_tool(SELECT)
+        # o'rnatilgan dasturda: ochilgandan keyin fonda yangilanishni tekshirish
+        if is_frozen() and load_settings()["auto"]:
+            QTimer.singleShot(4000, lambda: self.updater.check(silent=True))
 
     # ================================================================ UI qurish
     def build_actions(self):
@@ -176,6 +182,9 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu("&Yordam")
         self._act(m, "Qo'llanma", self.show_help, QKeySequence.HelpContents)
+        m.addSeparator()
+        self._act(m, "Yangilanishni tekshirish...", lambda: self.updater.check(silent=False))
+        self._act(m, "Yangilanish sozlamalari...", lambda: UpdateSettingsDialog(self).exec())
         self._act(m, "Dastur haqida", lambda: QMessageBox.about(
             self, "Dastur haqida",
             f"TTYSI Binolar kadastri — AT jihozlari xaritasi\nVersiya {__version__}"))
@@ -970,6 +979,7 @@ Qora ruchkadagi belgilarni asboblar panelidan qo'lda qo'ying.</li>
 
     def closeEvent(self, event):
         if self.maybe_save():
+            self.updater.shutdown()
             event.accept()
         else:
             event.ignore()

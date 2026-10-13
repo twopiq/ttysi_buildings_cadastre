@@ -99,6 +99,29 @@ Loyiha bitta `.ttysi` faylda saqlanadi: bino, barcha etajlar va kadastr rasmlari
 **Tayyor dastur.** GitHub → Actions → "Windows build" → `TTYSI_Kadastr_Windows.zip` faylini yuklab oling.
 Arxivni oching va `TTYSI_Kadastr.exe` ni ishga tushiring.
 
+## Yangilash
+
+Dastur o'zini o'zi yangilaydi, yangi versiya uchun `.exe` ni qayta yig'ish va tarqatish shart emas.
+
+- **Yordam → Yangilanishni tekshirish.** Dastur ochilganda ham fonda o'zi tekshiradi (sozlamalarda
+  o'chirish mumkin).
+- **Kod yangilanishi** (~100 KB): kutubxonalar o'zgarmagan bo'lsa, faqat dastur kodi yuklanadi va
+  dastur qayta ochiladi. Yangi kod ishga tushmasa, dastur o'zi avvalgi ishlaydigan versiyaga qaytadi.
+- **To'liq yangilanish** (~100 MB): kutubxonalar o'zgargan bo'lsa (kam bo'ladi), to'liq paket
+  yuklanadi va dastur yopilgach papka avtomatik almashtiriladi.
+
+**Yangilanish manbai** (Yordam → Yangilanish sozlamalari):
+- **Tarmoq yoki mahalliy papka** — institut ichida internetsiz ishlaydi. Relizdagi uchta faylni
+  (`update.json`, `ttysi_app-<versiya>.zip`, `TTYSI_Kadastr_Windows.zip`) masalan
+  `\\server\TTYSI\yangilanish` papkasiga ko'chiring va dasturlarda shu papkani ko'rsating.
+- **GitHub Releases** — repozitoriy ochiq bo'lsa tokensiz ishlaydi. Yopiq bo'lsa, faqat o'qish
+  huquqli (Contents: Read-only) fine-grained token kiritiladi.
+
+**Yangi versiya chiqarish (dasturchi uchun):** `ttysi_cadastre/__init__.py` dagi `__version__` ni
+oshiring va commit xabariga `[release]` qo'shing. GitHub Actions testlarni o'tkazadi, `.exe` ni
+yig'adi va sinaydi, keyin reliz va yangilanish fayllarini chiqaradi. Commit xabari foydalanuvchiga
+"yangilikda nima bor" bo'lib ko'rinadi.
+
 **Manba koddan ishga tushirish:**
 
 ```
