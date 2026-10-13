@@ -44,6 +44,17 @@ def test_detect_double_line_walls_with_scale():
     assert [r.kind for r in res.rooms].count("corridor") == 1
 
 
+def test_corridor_with_exterior_entrance_is_kept():
+    """Tashqi kirish eshigi bor koridor tashqi maydon deb tushib qolmasligi kerak."""
+    mpp = 0.025
+    res = detect(make_double_line_plan(mpp, entrance=True), DetectParams(m_per_px=mpp, wall_m=0.3, door_m=1.2))
+    corridors = [r for r in res.rooms if r.kind == "corridor"]
+    assert len(corridors) == 1
+    x0, y0, x1, y1 = _bbox(corridors[0].points)
+    assert x1 - x0 > 900 and 100 < y1 - y0 < 140
+    assert len(res.rooms) == len(ROOMS)
+
+
 def test_room_contains_and_room_of():
     f = Floor(name="x")
     big = Room(points=[(0, 0), (100, 0), (100, 100), (0, 100)], name="katta")

@@ -31,6 +31,7 @@ class DetectParams:
     gap_m: float = 1.0             # devor chizig'idagi eng katta uzilish (uziq chiziq, deraza)
     local_contrast: int = 12       # och chiziqlar uchun mahalliy kontrast chegarasi
     line_coverage: float = 0.7     # devor chizig'i bo'ylab siyohning eng kam ulushi
+    envelope_gap_m: float = 3.0    # tashqi devordagi eng katta teshik (deraza, kirish)
     # Masshtab noma'lum bo'lsa - rasm o'lchamiga nisbatan
     door_gap: float = 0.04         # eshik/teshiklarni yopish (rasm o'lchamiga nisbatan)
     min_room: float = 0.0015       # eng kichik xona maydoni (rasm maydoniga nisbatan)
@@ -273,6 +274,17 @@ def straight_walls(mask: np.ndarray, mpp: float, gap_m: float, min_coverage: flo
     return out
 
 
+def building_envelope(walls: np.ndarray, gap_px: float) -> np.ndarray:
+    """Binoning ichki maydoni: devorlardagi gap_px gacha teshiklar yopilib, ichi to'ldiriladi."""
+    k = max(3, int(round(gap_px)))
+    closed = cv2.morphologyEx(walls, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (k, 1)))
+    closed = cv2.morphologyEx(closed, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (1, k)))
+    outside = cv2.copyMakeBorder(closed, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+    h, w = outside.shape
+    cv2.floodFill(outside, np.zeros((h + 2, w + 2), np.uint8), (0, 0), 128)
+    return np.where(outside[1:-1, 1:-1] == 128, 0, 255).astype(np.uint8)
+
+
 def merge_wide_contacts(labels: np.ndarray, n: int, outside: np.ndarray, door_px: float) -> np.ndarray:
     """Keng tutashgan qo'shni bo'laklarni birlashtiradi.
 
@@ -411,13 +423,17 @@ def detect(img: np.ndarray, params: DetectParams | None = None) -> DetectionResu
     # Xonalarni eshiklar (tor bo'g'izlar) bo'yicha ajratish:
     # bo'sh joyning eshikdan kengroq qismlari - xona "urug'lari", keyin ular devorgacha o'stiriladi.
     free = cv2.bitwise_not(cv2.dilate(walls, np.ones((3, 3), np.uint8)))
+    # Bino konturi: tashqi devordagi derazalar va kirish eshiklari yopiladi, aks holda
+    # ular orqali xona tashqi maydonga qo'shilib, "tashqi" deb tushib qoladi
+    env_px = (p.envelope_gap_m / mpp) if mpp else door_px * 1.7
+    free = cv2.bitwise_and(free, building_envelope(walls, env_px))
     free[0, :] = free[-1, :] = 0
     free[:, 0] = free[:, -1] = 0
     fdist = cv2.distanceTransform(free, cv2.DIST_L2, 5)
     r = max(2.0, door_px / 2)
     n, seeds, sstats, _ = cv2.connectedComponentsWithStats((fdist > r).astype(np.uint8), connectivity=4)
-    # tashqi maydon: rasm chetiga yaqin urug'
-    edge = 2 * r + 3
+    # bino konturi tashqarini allaqachon kesgan - faqat ramkaga tegib turganlar (kesilgan xonalar) tashqi
+    edge = 3
     outside = np.zeros(n, bool)
     for i in range(1, n):
         x, y, bw, bh, _ = sstats[i]

@@ -68,7 +68,7 @@ DOORS = [(250, 400, True), (550, 400, True), (900, 400, True),
          (300, 520, True), (800, 520, True), (400, 250, False)]
 
 
-def make_double_line_plan(m_per_px: float = 0.025) -> np.ndarray:
+def make_double_line_plan(m_per_px: float = 0.025, entrance: bool = False) -> np.ndarray:
     """Kadastrdagidek: devorlar qo'sh ingichka chiziq, eshiklar - bo'shliq va ochilish yoyi.
 
     1 piksel = 2.5 sm: devor ~0.25 m, eshik ~0.9 m, koridor 3 m.
@@ -98,6 +98,9 @@ def make_double_line_plan(m_per_px: float = 0.025) -> np.ndarray:
             cv2.line(img, (x - t // 2, y - door // 2), (x + t // 2, y - door // 2), ink, 1)
             cv2.line(img, (x - t // 2, y + door // 2), (x + t // 2, y + door // 2), ink, 1)
             cv2.ellipse(img, (x + t // 2, y - door // 2), (door, door), 0, 0, 90, ink, 1)
+    if entrance:
+        # koridor oxirida tashqi kirish eshigi (2 m) - koridor tashqariga ochiladi
+        cv2.rectangle(img, (100 - t // 2 - 1, 420), (100 + t // 2 + 1, 500), (252, 252, 252), -1)
     for i, (x0, y0, x1, y1) in enumerate(ROOMS, 1):
         cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
         cv2.putText(img, str(i), (cx - 6, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.45, ink, 1)

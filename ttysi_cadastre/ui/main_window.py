@@ -928,6 +928,7 @@ Qora ruchkadagi belgilarni asboblar panelidan qo'lda qo'ying.</li>
 </ol>
 <h3>Tugmalar</h3>
 {keys}<br>
+<i>Qog'ozda: Kam / X → 3 (Kamera), A.S → 5 (Switch), t → 6 (Tochka), K.S → ikkita belgi (3 va 5)</i><br>
 <b>V</b> — tanlash, <b>P</b> — xona (burchaklar), <b>R</b> — to'rtburchak xona, <b>B</b> — bo'lish<br>
 <b>F8</b> — orto rejim, <b>Shift</b> — orto rejimni vaqtincha teskarisiga<br>
 <b>G'ildirak</b> — kattalashtirish, <b>o'rta tugma / Probel+sudrash</b> — surish, <b>Ctrl+0</b> — butun chizma<br>

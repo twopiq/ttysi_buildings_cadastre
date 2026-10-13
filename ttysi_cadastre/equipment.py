@@ -36,6 +36,7 @@ def get_type(code: str) -> EquipmentType:
 ROOM_KINDS = {
     "room": ("Xona", "#ffffff"),
     "corridor": ("Koridor", "#fff8e1"),
+    "computer": ("Kompyuter xona", "#e8f5e9"),
     "stairs": ("Zinapoya", "#eceff1"),
     "wc": ("Hojatxona", "#e0f7fa"),
     "other": ("Boshqa", "#f3e5f5"),

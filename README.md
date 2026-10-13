@@ -17,6 +17,23 @@ Hamma ish kompyuterning o'zida bajariladi: internet ham, AI xizmati ham kerak em
 | 5 | S | Switch / Hub |
 | 6 | T | Internet nuqtasi (tochka) |
 
+### Qog'ozdagi qo'lyozma belgilar
+
+Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlanadi:
+
+| Qog'ozda | Tugma | Jihoz |
+|---|---|---|
+| Ser. | 1 | Serverxona |
+| K.x. (kommutatsion) | 2 | Kommutatsion xona |
+| K, K., Kam, кам, X | 3 | Kamera |
+| W | 4 | Wi-Fi |
+| S, A.S | 5 | Switch / Hub |
+| T, t | 6 | Internet nuqtasi |
+| K.S | 3 va 5 | bitta joyda Kamera + Switch (ikkita belgi) |
+
+- `103-x` kabi yozuvlar — **xona raqami** (103-xona). U xonaning nomiga yoziladi.
+- "Kompyuter xona" — jihoz emas, **xona turi**: o'ng tugma → Turi → Kompyuter xona.
+
 ## Ish tartibi
 
 1. **Etaj → PDF / rasmdan yangi etaj qo'shish (Ctrl+I).**
