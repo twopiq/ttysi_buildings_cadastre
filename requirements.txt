@@ -1,0 +1,5 @@
+PySide6>=6.6
+opencv-python-headless>=4.8
+numpy>=1.24
+ezdxf>=1.1
+shapely>=2.0
