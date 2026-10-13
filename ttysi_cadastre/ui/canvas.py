@@ -741,6 +741,7 @@ class FloorView(QGraphicsView):
     status = Signal(str)
     split_requested = Signal(QPointF, QPointF)
     scale_requested = Signal(float)   # piksel masofasi
+    zoomed = Signal(float)            # joriy kattalashtirish (1.0 = rasmning haqiqiy o'lchami)
 
     def __init__(self, scene: FloorScene):
         super().__init__(scene)
@@ -749,7 +750,7 @@ class FloorView(QGraphicsView):
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
-        self.setBackgroundBrush(QColor("#eceff1"))
+        self.setBackgroundBrush(QColor("#F7F8FA"))
         self.tool = SELECT
         self.equip_code = "K"
         self.points: list[QPointF] = []
@@ -827,14 +828,21 @@ class FloorView(QGraphicsView):
     # --- sichqoncha
     def wheelEvent(self, event):
         f = 1.0015 ** event.angleDelta().y()
+        self.zoom_by(f)
+
+    def zoom_by(self, f: float):
+        m = self.transform().m11()
+        f = max(0.02, min(16.0, m * f)) / max(m, 1e-9)
         self.scale(f, f)
         self.fscene.view_scale = self.transform().m11()
+        self.zoomed.emit(self.transform().m11())
 
     def zoom_fit(self):
         if self.fscene.floor:
             f = self.fscene.floor
             self.fitInView(QRectF(0, 0, f.width, f.height), Qt.KeepAspectRatio)
             self.fscene.view_scale = self.transform().m11()
+            self.zoomed.emit(self.transform().m11())
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MiddleButton or (self._space and event.button() == Qt.LeftButton):

@@ -90,7 +90,7 @@ def export_pdf(path: str, building: Building, floors: list[Floor], opts: RenderO
 _ACI = {"SER": 1, "KX": 6, "K": 3, "W": 5, "S": 30, "T": 34, "?": 8}
 
 
-def export_dxf(path: str, building: Building, floor: Floor) -> None:
+def export_dxf(path: str, building: Building, floor: Floor, planned: bool = True) -> None:
     """AutoCAD DXF. Masshtab berilgan bo'lsa - metrlarda, aks holda piksellarda.
 
     Qatlamlar: XONA_<tur>, XONA_NOMLARI, AT_<kod>. Y o'qi CAD uchun teskari aylantiriladi.
@@ -156,6 +156,8 @@ def export_dxf(path: str, building: Building, floor: Floor) -> None:
         blk.add_text(t.label, height=r * 0.8, dxfattribs={"color": 0}).set_placement(
             (0, 0), align=TextEntityAlignment.MIDDLE_CENTER)
     for e in floor.equipment:
+        if e.planned and not planned:
+            continue
         t = get_type(e.code)
         layer = f"AT_{t.code if t.code != '?' else 'TASDIQLANMAGAN'}"
         if e.planned and t.code != "?":

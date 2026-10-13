@@ -74,6 +74,7 @@ QPushButton#danger {{ color: {DANGER_FG}; border-color: {DANGER_LINE}; }}
 QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox, QKeySequenceEdit {{
     min-height: 30px; border: 1px solid {LINE_STRONG}; border-radius: 8px; padding: 0 8px; background: {SURFACE};
 }}
+QComboBox::drop-down {{ border: none; width: 26px; }}
 QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {{ border: 2px solid {PRIMARY}; }}
 QProgressBar {{ border: none; border-radius: 4px; background: #EEF1F4; max-height: 8px; }}
 QProgressBar::chunk {{ border-radius: 4px; background: {PRIMARY}; }}

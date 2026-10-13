@@ -18,6 +18,7 @@ class RenderOptions:
     room_names: bool = True
     legend: bool = True
     title: bool = True
+    planned: bool = True       # "kerak" (rejadagi) jihozlarni ham chizish
 
 
 def meter_px(floor: Floor) -> float:
@@ -147,6 +148,8 @@ def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImag
                 p.drawText(QRectF(cx - 300, cy - 100, 600, 200), Qt.AlignCenter, text)
     r = symbol_radius(floor)
     for e in floor.equipment:
+        if e.planned and not opts.planned:
+            continue
         draw_equipment_symbol(p, e.code, QPointF(e.x, e.y), r, e.planned)
 
 
@@ -200,11 +203,13 @@ def draw_page(p: QPainter, page: QRectF, building: Building, floor: Floor,
         if is_wide(floor):
             # uzun etaj - shartli belgilar pastda, gorizontal
             lh = unit * 7
-            draw_legend(p, QRectF(area.left(), area.bottom() - lh, area.width(), lh), floor, unit, columns=6)
+            draw_legend(p, QRectF(area.left(), area.bottom() - lh, area.width(), lh), floor, unit, columns=6,
+                        planned=opts.planned)
             area.setBottom(area.bottom() - lh - unit)
         else:
             lw = unit * 19
-            draw_legend(p, QRectF(area.right() - lw, area.top(), lw, area.height()), floor, unit)
+            draw_legend(p, QRectF(area.right() - lw, area.top(), lw, area.height()), floor, unit,
+                        planned=opts.planned)
             area.setRight(area.right() - lw - unit)
 
     # chizmani maydonga sig'dirish
@@ -221,9 +226,10 @@ def is_wide(floor: Floor) -> bool:
     return floor.width / max(1, floor.height) > 2.2
 
 
-def draw_legend(p: QPainter, rect: QRectF, floor: Floor, unit: float, columns: int = 1) -> None:
+def draw_legend(p: QPainter, rect: QRectF, floor: Floor, unit: float, columns: int = 1,
+                planned: bool = True) -> None:
     counts = equipment_counts(floor)
-    need = equipment_counts(floor, planned=True)
+    need = equipment_counts(floor, planned=True) if planned else {}
     f = QFont("Arial")
     f.setBold(True)
     f.setPixelSize(int(unit * 1.1))
