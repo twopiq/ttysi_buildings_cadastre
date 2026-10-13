@@ -108,6 +108,10 @@ def export_dxf(path: str, building: Building, floor: Floor) -> None:
     for t in EQUIPMENT_TYPES + [UNKNOWN]:
         lname = f"AT_{t.code if t.code != '?' else 'TASDIQLANMAGAN'}"
         doc.layers.add(lname, color=_ACI[t.code]).description = t.name
+        if t.code != "?":
+            # o'rnatilishi kerak (rejadagi) jihozlar - alohida qatlam, punktir chiziq
+            doc.layers.add(lname + "_KERAK", color=_ACI[t.code], linetype="DASHED").description = \
+                f"{t.name} — kerak (rejada)"
 
     text_h = label_px(floor) * 0.8 * k
     for room in floor.rooms:
@@ -125,14 +129,19 @@ def export_dxf(path: str, building: Building, floor: Floor) -> None:
     for t in EQUIPMENT_TYPES + [UNKNOWN]:
         bname = f"AT_{t.code if t.code != '?' else 'Q'}"
         blk = doc.blocks.new(name=bname)
+        # BYBLOCK/BYLAYER: rang va chiziq turi blok qo'yilgan qatlamdan olinadi (punktir - rejadagi)
+        attrs = {"color": 0, "linetype": "BYLAYER"}
         if t.code in ("SER", "KX"):
-            blk.add_lwpolyline([(-r, -r), (r, -r), (r, r), (-r, r)], close=True)
+            blk.add_lwpolyline([(-r, -r), (r, -r), (r, r), (-r, r)], close=True, dxfattribs=attrs)
         else:
-            blk.add_circle((0, 0), r)
-        blk.add_text(t.label, height=r * 0.8).set_placement((0, 0), align=TextEntityAlignment.MIDDLE_CENTER)
+            blk.add_circle((0, 0), r, dxfattribs=attrs)
+        blk.add_text(t.label, height=r * 0.8, dxfattribs={"color": 0}).set_placement(
+            (0, 0), align=TextEntityAlignment.MIDDLE_CENTER)
     for e in floor.equipment:
         t = get_type(e.code)
         layer = f"AT_{t.code if t.code != '?' else 'TASDIQLANMAGAN'}"
+        if e.planned and t.code != "?":
+            layer += "_KERAK"
         bname = f"AT_{t.code if t.code != '?' else 'Q'}"
         ref = msp.add_blockref(bname, pt(e.x, e.y), dxfattribs={"layer": layer, "color": _ACI[t.code]})
         if e.note:

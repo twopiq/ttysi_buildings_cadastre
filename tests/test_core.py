@@ -185,3 +185,60 @@ def test_pdf_page_render(qapp, tmp_path):
     assert img.shape[1] == pytest.approx(420 / 25.4 * 200, rel=0.01)
     assert mm_per_px == pytest.approx(25.4 / 200)
     assert len(detect(img).rooms) == len(ROOMS)
+
+
+def test_planned_equipment(qapp, tmp_path):
+    """Rejadagi (kerak) jihozlar: saqlash, Excel, DXF va oynadagi almashtirish."""
+    import openpyxl
+    from ttysi_cadastre.export import export_dxf, export_image
+    from ttysi_cadastre.render import RenderOptions
+    from ttysi_cadastre.report import export_excel
+    b, f = _sample()
+    f.rooms[0].kind = "computer"
+    f.equipment += [Equipment(code="S", x=150, y=150, status="planned", note="kompyuter xona uchun"),
+                    Equipment(code="T", x=160, y=150, status="planned")]
+
+    # fayl
+    p = str(tmp_path / "r.ttysi")
+    b.save(p)
+    f2 = Building.load(p).floors[0]
+    assert [e.status for e in f2.equipment].count("planned") == 2
+
+    # Excel: umumiy varaqda faqat mavjudlar, "Kerak (reja)" varag'ida rejadagilar
+    x = str(tmp_path / "r.xlsx")
+    export_excel(x, [b])
+    wb = openpyxl.load_workbook(x)
+    rows = list(wb["Umumiy"].iter_rows(values_only=True))
+    first = dict(zip(rows[0], rows[1]))
+    assert first["S"] == 1 and first["T"] == 1 and first["Kerak (rejada)"] == 2
+    plan = list(wb["Kerak (reja)"].iter_rows(values_only=True))
+    floor_row = dict(zip(plan[0], plan[1]))
+    assert floor_row["S"] == 1 and floor_row["T"] == 1 and floor_row["Jami"] == 2
+    assert any(r and r[2] == "101" and r[3] == "S" for r in plan)
+    rooms = list(wb["Xonalar"].iter_rows(values_only=True))
+    r101 = dict(zip(rooms[0], next(r for r in rooms if r[2] == "101")))
+    assert r101["Turi"] == "Kompyuter xona" and r101["Kerak (rejada)"] == "S×1, T×1"
+    jih = list(wb["Jihozlar"].iter_rows(values_only=True))
+    assert [r[6] for r in jih[1:]].count("Kerak") == 2
+
+    # DXF: alohida punktir qatlam
+    d = str(tmp_path / "r.dxf")
+    export_dxf(d, b, f)
+    doc = ezdxf.readfile(d)
+    assert doc.layers.get("AT_S_KERAK").dxf.linetype == "DASHED"
+    assert {e.dxf.layer for e in doc.modelspace().query("INSERT")} >= {"AT_S_KERAK", "AT_T_KERAK", "AT_S"}
+    export_image(str(tmp_path / "r.png"), b, f, RenderOptions(), 1000)
+
+    # oyna: Ctrl+K bilan holatni almashtirish va bekor qilish
+    from ttysi_cadastre.ui.main_window import MainWindow
+    w = MainWindow()
+    w.building = b
+    w.refresh_all()
+    item = next(i for i in w.scene.equipment_items() if i.eq.code == "W")
+    item.setSelected(True)
+    w.toggle_status()
+    assert item.eq.planned
+    w.undo()
+    assert not next(e for e in f.equipment if e.code == "W").planned
+    w.dirty = False
+    w.close()

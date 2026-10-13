@@ -155,6 +155,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         self._act(m, "O'chirish", self.scene.delete_selected, QKeySequence.Delete)
         self._act(m, "Hammasini tanlash", self.select_all, QKeySequence.SelectAll)
+        self._act(m, "Jihoz holatini almashtirish (mavjud / kerak)", self.toggle_status, QKeySequence("Ctrl+K"))
         self._act(m, "Tanlangan xonalarni birlashtirish", self.merge_selected, QKeySequence("Ctrl+M"))
         self._act(m, "Keyingi tasdiqlanmagan belgi", self.select_next_unknown, QKeySequence("N"))
 
@@ -207,6 +208,13 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         for t in EQUIPMENT_TYPES:
             tool(t.label, None, EQUIP, t.code, tip=f"{t.name} qo'yish (tanlangan belgining turi: {t.key})")
+        tb.addSeparator()
+        self.a_plan_mode = QAction("Kerak\n(reja)", self)
+        self.a_plan_mode.setCheckable(True)
+        self.a_plan_mode.setShortcut(QKeySequence("Q"))
+        self.a_plan_mode.setToolTip("Yoqilsa, yangi qo'yilgan jihozlar \"kerak (o'rnatilishi rejada)\" bo'ladi (Q)")
+        self.a_plan_mode.toggled.connect(lambda on: setattr(self.view, "place_planned", on))
+        tb.addAction(self.a_plan_mode)
 
     def _act(self, menu, text, slot, shortcut=None):
         a = QAction(text, self)
@@ -285,7 +293,12 @@ class MainWindow(QMainWindow):
         self.p_eq_note = QLineEdit()
         self.p_eq_note.setPlaceholderText("masalan: Hikvision, 2-port")
         self.p_eq_note.editingFinished.connect(self.on_eq_props)
+        self.p_eq_status = QComboBox()
+        self.p_eq_status.addItem("Mavjud", "existing")
+        self.p_eq_status.addItem("Kerak (o'rnatilishi rejada)", "planned")
+        self.p_eq_status.activated.connect(self.on_eq_props)
         ef.addRow("Turi:", self.p_eq_type)
+        ef.addRow("Holati:", self.p_eq_status)
         ef.addRow("Izoh:", self.p_eq_note)
         self.props.addWidget(ew)
         # 3 - bir nechta
@@ -377,9 +390,11 @@ class MainWindow(QMainWindow):
             self.stats.setText("Etaj yo'q. Chapdagi \"+ PDF / rasmdan etaj qo'shish\" tugmasini bosing.")
             return
         counts = equipment_counts(f)
+        need = equipment_counts(f, planned=True)
         lines = []
         for t in EQUIPMENT_TYPES:
-            lines.append(f"<span style='color:{t.color}'>■</span> {t.name}: <b>{counts.get(t.code, 0)}</b>")
+            extra = f" <span style='color:#c62828'>(+{need[t.code]} kerak)</span>" if need.get(t.code) else ""
+            lines.append(f"<span style='color:{t.color}'>■</span> {t.name}: <b>{counts.get(t.code, 0)}</b>{extra}")
         if counts.get("?"):
             lines.append(f"<span style='color:#c62828'>⚠ Tasdiqlanmagan: <b>{counts['?']}</b> "
                          f"(N - keyingisi, 1-6 - turi)</span>")
@@ -456,6 +471,7 @@ class MainWindow(QMainWindow):
             e = eqs[0].eq
             self.p_eq_type.setCurrentIndex(self.p_eq_type.findData(e.code))
             self.p_eq_note.setText(e.note)
+            self.p_eq_status.setCurrentIndex(self.p_eq_status.findData(e.status))
             self.props.setCurrentIndex(2)
         elif sel:
             self.p_multi.setText(f"Tanlangan: {len(rooms)} ta xona, {len(eqs)} ta belgi.\n\n"
@@ -482,12 +498,23 @@ class MainWindow(QMainWindow):
         if len(eqs) != 1:
             return
         it = eqs[0]
-        code, note = self.p_eq_type.currentData(), self.p_eq_note.text().strip()
-        if (code, note) == (it.eq.code, it.eq.note):
+        code, note, status = self.p_eq_type.currentData(), self.p_eq_note.text().strip(), self.p_eq_status.currentData()
+        if (code, note, status) == (it.eq.code, it.eq.note, it.eq.status):
             return
         it.set_code(code)
+        it.set_status(status)
         it.eq.note = note
         it.refresh_tooltip()
+        self.scene.changed_model.emit()
+
+    def toggle_status(self):
+        eqs = self.scene.selected_equipment()
+        if not eqs:
+            self.statusBar().showMessage("Avval jihozni tanlang.", 4000)
+            return
+        new = "existing" if all(it.eq.planned for it in eqs) else "planned"
+        for it in eqs:
+            it.set_status(new)
         self.scene.changed_model.emit()
 
     def on_digit(self, key: str) -> bool:

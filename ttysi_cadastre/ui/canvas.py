@@ -212,7 +212,7 @@ class EquipmentItem(QGraphicsItem):
 
     def refresh_tooltip(self):
         t = get_type(self.eq.code)
-        tip = t.name + (f"\n{self.eq.note}" if self.eq.note else "")
+        tip = t.name + (" — kerak (rejada)" if self.eq.planned else "") + (f"\n{self.eq.note}" if self.eq.note else "")
         if t.code == "?":
             tip += "\nTurini tanlash: 1-6 tugmalari"
         self.setToolTip(tip)
@@ -223,7 +223,7 @@ class EquipmentItem(QGraphicsItem):
 
     def paint(self, p: QPainter, option, widget=None):
         p.setRenderHint(QPainter.Antialiasing)
-        draw_equipment_symbol(p, self.eq.code, QPointF(0, 0), self.r)
+        draw_equipment_symbol(p, self.eq.code, QPointF(0, 0), self.r, self.eq.planned)
         if self.eq.code == "?":
             pen = QPen(QColor("#ff1744"), self.r * 0.15, Qt.DashLine)
             p.setPen(pen)
@@ -241,6 +241,32 @@ class EquipmentItem(QGraphicsItem):
         self.eq.code = code
         self.refresh_tooltip()
         self.update()
+
+    def set_status(self, status: str):
+        self.eq.status = status
+        self.refresh_tooltip()
+        self.update()
+
+    def contextMenuEvent(self, event):
+        scene: FloorScene = self.scene()
+        if not self.isSelected():
+            scene.clearSelection()
+            self.setSelected(True)
+        menu = QMenu()
+        exist = menu.addAction("Mavjud")
+        plan = menu.addAction("Kerak (o'rnatilishi rejada)")
+        for a, st in ((exist, "existing"), (plan, "planned")):
+            a.setCheckable(True)
+            a.setChecked(self.eq.status == st)
+        menu.addSeparator()
+        delete = menu.addAction("O'chirish")
+        act = menu.exec(event.screenPos())
+        if act in (exist, plan):
+            for it in scene.selected_equipment():
+                it.set_status("existing" if act == exist else "planned")
+            scene.changed_model.emit()
+        elif act == delete:
+            scene.delete_selected()
 
 
 class FloorScene(QGraphicsScene):
@@ -302,8 +328,8 @@ class FloorScene(QGraphicsScene):
         self.changed_model.emit()
         return item
 
-    def add_equipment(self, code: str, pos: QPointF) -> EquipmentItem:
-        eq = Equipment(code=code, x=pos.x(), y=pos.y())
+    def add_equipment(self, code: str, pos: QPointF, planned: bool = False) -> EquipmentItem:
+        eq = Equipment(code=code, x=pos.x(), y=pos.y(), status="planned" if planned else "existing")
         self.floor.equipment.append(eq)
         item = EquipmentItem(eq, self.floor)
         self.addItem(item)
@@ -385,6 +411,7 @@ class FloorView(QGraphicsView):
         self._pan_last = None
         self._space = False
         self.digit_pressed = None   # oyna tomonidan beriladi: f(key) -> bool
+        self.place_planned = False  # yangi qo'yiladigan jihozlar "kerak" holatida bo'lsinmi
 
     # --- asbob
     def set_tool(self, tool: str, code: str | None = None):
@@ -484,7 +511,7 @@ class FloorView(QGraphicsView):
         elif self.tool == ROOM_RECT:
             self.rect_start = p
         elif self.tool == EQUIP:
-            self.fscene.add_equipment(self.equip_code, p)
+            self.fscene.add_equipment(self.equip_code, p, planned=self.place_planned)
         elif self.tool in (SPLIT, SCALE):
             p = self._ortho_lock(p, shift)
             self.points.append(p)

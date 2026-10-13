@@ -71,6 +71,11 @@ class Equipment:
     y: float
     note: str = ""
     id: str = field(default_factory=new_id)
+    status: str = "existing"    # existing - mavjud, planned - kerak (o'rnatilishi rejada)
+
+    @property
+    def planned(self) -> bool:
+        return self.status == "planned"
 
 
 @dataclass
@@ -115,7 +120,7 @@ class Floor:
                            name=r.get("name", ""), id=r.get("id") or new_id())
                       for r in d.get("rooms", [])]
         self.equipment = [Equipment(code=e["code"], x=e["x"], y=e["y"], note=e.get("note", ""),
-                                    id=e.get("id") or new_id())
+                                    id=e.get("id") or new_id(), status=e.get("status", "existing"))
                           for e in d.get("equipment", [])]
 
     @classmethod

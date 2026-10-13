@@ -38,12 +38,20 @@ def symbol_radius(floor: Floor) -> float:
     return meter_px(floor) * 0.55
 
 
-def draw_equipment_symbol(p: QPainter, code: str, center: QPointF, r: float) -> None:
-    """AT jihozi belgisi: rangli doira (xonalar uchun - kvadrat) ichida qisqa belgi."""
+def draw_equipment_symbol(p: QPainter, code: str, center: QPointF, r: float, planned: bool = False) -> None:
+    """AT jihozi belgisi: rangli doira (xonalar uchun - kvadrat) ichida qisqa belgi.
+
+    Rejadagi (kerak) jihoz - oq fon, rangli punktir chegara va rangli yozuv.
+    """
     t = get_type(code)
     color = QColor(t.color)
-    p.setPen(QPen(color.darker(140), r * 0.14))
-    p.setBrush(QBrush(color))
+    if planned:
+        pen = QPen(color, r * 0.2, Qt.DashLine)
+        p.setPen(pen)
+        p.setBrush(QBrush(QColor("white")))
+    else:
+        p.setPen(QPen(color.darker(140), r * 0.14))
+        p.setBrush(QBrush(color))
     if code in ("SER", "KX"):
         p.drawRect(QRectF(center.x() - r, center.y() - r, 2 * r, 2 * r))
     else:
@@ -52,7 +60,7 @@ def draw_equipment_symbol(p: QPainter, code: str, center: QPointF, r: float) -> 
     f.setBold(True)
     f.setPixelSize(max(1, int(r * (0.95 if len(t.label) <= 2 else 0.7))))
     p.setFont(f)
-    p.setPen(QColor("white"))
+    p.setPen(color.darker(120) if planned else QColor("white"))
     p.drawText(QRectF(center.x() - r, center.y() - r, 2 * r, 2 * r), Qt.AlignCenter, t.label)
 
 
@@ -87,7 +95,7 @@ def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImag
                 p.drawText(QRectF(cx - 300, cy - 100, 600, 200), Qt.AlignCenter, text)
     r = symbol_radius(floor)
     for e in floor.equipment:
-        draw_equipment_symbol(p, e.code, QPointF(e.x, e.y), r)
+        draw_equipment_symbol(p, e.code, QPointF(e.x, e.y), r, e.planned)
 
 
 def room_label(room, floor: Floor) -> str:
@@ -101,10 +109,12 @@ def room_label(room, floor: Floor) -> str:
     return "\n".join(parts)
 
 
-def equipment_counts(floor: Floor) -> dict[str, int]:
+def equipment_counts(floor: Floor, planned: bool = False) -> dict[str, int]:
+    """Jihozlar soni turlar bo'yicha (planned=True - faqat rejadagilar, aks holda mavjudlar)."""
     counts: dict[str, int] = {}
     for e in floor.equipment:
-        counts[e.code] = counts.get(e.code, 0) + 1
+        if e.planned == planned:
+            counts[e.code] = counts.get(e.code, 0) + 1
     return counts
 
 
@@ -161,6 +171,7 @@ def is_wide(floor: Floor) -> bool:
 
 def draw_legend(p: QPainter, rect: QRectF, floor: Floor, unit: float, columns: int = 1) -> None:
     counts = equipment_counts(floor)
+    need = equipment_counts(floor, planned=True)
     f = QFont("Arial")
     f.setBold(True)
     f.setPixelSize(int(unit * 1.1))
@@ -174,7 +185,12 @@ def draw_legend(p: QPainter, rect: QRectF, floor: Floor, unit: float, columns: i
     items = []  # (chizish funksiyasi, matn)
     types = list(EQUIPMENT_TYPES) + ([UNKNOWN] if counts.get(UNKNOWN.code) else [])
     for t in types:
-        items.append((("eq", t.code), f"{t.name} — {counts.get(t.code, 0)} ta"))
+        text = f"{t.name} — {counts.get(t.code, 0)} ta"
+        if need.get(t.code):
+            text += f" (+{need[t.code]} kerak)"
+        items.append((("eq", t.code), text))
+    if need:
+        items.append((("plan", "S"), "Punktir — o'rnatilishi kerak"))
     for kind, (name, color) in ROOM_KINDS.items():
         n = sum(1 for r in floor.rooms if r.kind == kind)
         if n:
@@ -187,9 +203,9 @@ def draw_legend(p: QPainter, rect: QRectF, floor: Floor, unit: float, columns: i
         col, row = (i // rows, i % rows) if columns > 1 else (0, i)
         x = rect.left() + col * col_w
         y = rect.top() + unit * 2.4 + row * row_h + (unit if columns == 1 and what == "room" else 0)
-        if what == "eq":
+        if what in ("eq", "plan"):
             r = unit * 0.7
-            draw_equipment_symbol(p, arg, QPointF(x + r, y + unit * 0.8), r)
+            draw_equipment_symbol(p, arg, QPointF(x + r, y + unit * 0.8), r, planned=(what == "plan"))
         else:
             p.setPen(QPen(QColor("#212121"), unit * 0.12))
             p.setBrush(QColor(arg))
