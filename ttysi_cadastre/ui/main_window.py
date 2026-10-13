@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import math
 import os
 
 from PySide6.QtCore import QPointF, QSettings, Qt, QTimer
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QImage, QKeySequence, QPainter, QPixmap
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                                QDockWidget, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
                                QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
                                QMessageBox, QPushButton, QSlider, QStackedWidget, QToolBar,
@@ -19,11 +20,11 @@ from ..equipment import BY_KEY, EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN
 from ..export import export_dxf, export_image, export_pdf, export_svg
 from ..geometry import merge_rooms, split_room
 from ..model import Building, Equipment, Floor, Room
-from ..render import RenderOptions, draw_equipment_symbol, equipment_counts, wall_width
+from ..render import RenderOptions, draw_equipment_symbol, equipment_counts, meter_px, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
 from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, WALL, EquipmentItem,
-                     FloorScene, FloorView, RoomItem)
+                     FloorScene, FloorView, RoomItem, WallItem)
 from .import_dialog import ImportDialog, PdfPageDialog, RedetectDialog, image_paper_mm_per_px
 from .update_dialog import Updater, UpdateSettingsDialog, load_settings
 
@@ -163,6 +164,9 @@ class MainWindow(QMainWindow):
         self._act(m, "Hammasini tanlash", self.select_all, QKeySequence.SelectAll)
         self._act(m, "Jihoz holatini almashtirish (mavjud / kerak)", self.toggle_status, QKeySequence("Ctrl+K"))
         self._act(m, "Tanlangan xonalarni birlashtirish", self.merge_selected, QKeySequence("Ctrl+M"))
+        tm = m.addMenu("Devor qalinligi")
+        self._act(tm, "Qalinlashtirish (+5 sm)", lambda: self.change_wall_thickness(0.05), QKeySequence("Alt+Up"))
+        self._act(tm, "Yupqalashtirish (-5 sm)", lambda: self.change_wall_thickness(-0.05), QKeySequence("Alt+Down"))
         rm = m.addMenu("Aylantirish (joyida)")
         self._act(rm, "90° o'ngga", lambda: self.rotate_selected(90.0), QKeySequence("]"))
         self._act(rm, "90° chapga", lambda: self.rotate_selected(-90.0), QKeySequence("["))
@@ -280,11 +284,27 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(w)
 
         self.props = QStackedWidget()
-        # 0 - hech narsa
-        none = QLabel("Element tanlanmagan.\n\nXona yoki belgini bosing.")
-        none.setAlignment(Qt.AlignTop)
-        none.setWordWrap(True)
-        self.props.addWidget(none)
+        # 0 - hech narsa tanlanmagan: etaj sozlamalari
+        nw = QWidget()
+        nl = QVBoxLayout(nw)
+        nl.setContentsMargins(0, 0, 0, 0)
+        hint = QLabel("Element tanlanmagan. Xona, devor yoki belgini bosing.")
+        hint.setWordWrap(True)
+        nl.addWidget(hint)
+        nf = QFormLayout()
+        self.p_room_wall = self._thickness_spin()
+        self.p_room_wall.setToolTip("Barcha xonalar chegarasidagi devorlar qalinligi (shu etaj uchun)")
+        self.p_room_wall.valueChanged.connect(self.on_room_wall_thickness)
+        self.p_new_wall = self._thickness_spin()
+        self.p_new_wall.setToolTip("Devor asbobi (L) bilan chiziladigan yangi devorlar qalinligi")
+        self.p_new_wall.setValue(float(self.settings.value("new_wall_m", 0.25)))
+        self.p_new_wall.valueChanged.connect(self.on_new_wall_thickness)
+        self.scene.new_wall_m = self.p_new_wall.value()
+        nf.addRow("Xona devorlari:", self.p_room_wall)
+        nf.addRow("Yangi devorlar:", self.p_new_wall)
+        nl.addLayout(nf)
+        nl.addStretch()
+        self.props.addWidget(nw)
         # 1 - xona
         rw = QWidget()
         rf = QFormLayout(rw)
@@ -323,6 +343,18 @@ class MainWindow(QMainWindow):
         self.p_multi.setAlignment(Qt.AlignTop)
         self.p_multi.setWordWrap(True)
         self.props.addWidget(self.p_multi)
+        # 4 - devor(lar)
+        ww = QWidget()
+        wf = QFormLayout(ww)
+        self.p_wall_thick = self._thickness_spin()
+        self.p_wall_thick.valueChanged.connect(self.on_wall_thickness)
+        self.p_wall_len = QLabel()
+        self.p_wall_count = QLabel()
+        self.p_wall_count.setWordWrap(True)
+        wf.addRow("Qalinligi:", self.p_wall_thick)
+        wf.addRow("Uzunligi:", self.p_wall_len)
+        wf.addRow(self.p_wall_count)
+        self.props.addWidget(ww)
         lay.addWidget(self.props)
 
         lay.addWidget(QLabel("<b>Fon (kadastr rasmi)</b>"))
@@ -479,7 +511,16 @@ class MainWindow(QMainWindow):
             return
         rooms = [i for i in sel if isinstance(i, RoomItem)]
         eqs = [i for i in sel if isinstance(i, EquipmentItem)]
-        if len(sel) == 1 and rooms:
+        walls = [i for i in sel if isinstance(i, WallItem)]
+        if walls and len(walls) == len(sel):
+            m = meter_px(self.floor)
+            self._set_quiet(self.p_wall_thick, walls[0].wall.thickness / m)
+            length = sum(math.dist(a, b) for it in walls for a, b in zip(it.wall.points, it.wall.points[1:])) / m
+            self.p_wall_len.setText(f"{length:.2f} m" + ("" if self.floor.scale_m_per_px else " (masshtab yo'q)"))
+            self.p_wall_count.setText(f"{len(walls)} ta devor tanlangan - qalinlik hammasiga qo'llanadi."
+                                      if len(walls) > 1 else "Alt+↑ / Alt+↓ - 5 sm ga o'zgartirish.")
+            self.props.setCurrentIndex(4)
+        elif len(sel) == 1 and rooms:
             r = rooms[0].room
             self.p_room_name.setText(r.name)
             self.p_room_kind.setCurrentIndex(self.p_room_kind.findData(r.kind))
@@ -500,7 +541,53 @@ class MainWindow(QMainWindow):
                                  "Ctrl+M - xonalarni birlashtirish.\nDel - o'chirish.")
             self.props.setCurrentIndex(3)
         else:
+            if self.floor is not None:
+                self._set_quiet(self.p_room_wall, self.floor.wall_m)
             self.props.setCurrentIndex(0)
+
+    @staticmethod
+    def _thickness_spin() -> QDoubleSpinBox:
+        sp = QDoubleSpinBox()
+        sp.setRange(0.05, 1.50)
+        sp.setDecimals(2)
+        sp.setSingleStep(0.01)
+        sp.setSuffix(" m")
+        sp.setKeyboardTracking(False)   # yozib bo'lgach (Enter) qo'llanadi, har harfda emas
+        return sp
+
+    @staticmethod
+    def _set_quiet(spin: QDoubleSpinBox, value: float) -> None:
+        spin.blockSignals(True)
+        spin.setValue(value)
+        spin.blockSignals(False)
+
+    def on_room_wall_thickness(self, value: float):
+        if self.floor is None or abs(self.floor.wall_m - value) < 1e-9:
+            return
+        self.floor.wall_m = value
+        self.histories[self.floor.id].push(self.floor)
+        self.show_floor(self.floor, keep_view=True)
+        self.set_dirty()
+
+    def on_new_wall_thickness(self, value: float):
+        self.scene.new_wall_m = value
+        self.settings.setValue("new_wall_m", value)
+
+    def on_wall_thickness(self, value: float):
+        walls = self.scene.selected_walls()
+        if walls:
+            self.scene.set_wall_thickness(walls, value)
+
+    def change_wall_thickness(self, delta_m: float):
+        """Alt+↑ / Alt+↓: tanlangan devorlarni 5 sm ga qalinlashtirish / yupqalashtirish."""
+        walls = self.scene.selected_walls()
+        if not walls:
+            self.statusBar().showMessage("Avval devorni tanlang.", 4000)
+            return
+        m = meter_px(self.floor)
+        value = min(1.5, max(0.05, round(walls[0].wall.thickness / m + delta_m, 2)))
+        self.scene.set_wall_thickness(walls, value)
+        self.statusBar().showMessage(f"Devor qalinligi: {value:.2f} m", 3000)
 
     def on_room_props(self):
         rooms = self.scene.selected_rooms()
@@ -982,7 +1069,7 @@ Qora ruchkadagi belgilarni asboblar panelidan qo'lda qo'ying.</li>
 {keys}<br>
 <i>Qog'ozda: Kam / X → 3 (Kamera), A.S → 5 (Switch), t → 6 (Tochka), K.S → ikkita belgi (3 va 5)</i><br>
 <b>V</b> — tanlash, <b>P</b> — xona (burchaklar), <b>R</b> — to'rtburchak xona, <b>B</b> — bo'lish<br>
-<b>L</b> — devor (burchaklarni bosing, Enter — tugatish; o'ng tugma: qalinligi 0.12–0.64 m),
+<b>L</b> — devor (burchaklarni bosing, Enter — tugatish). Qalinlik: o'ngdagi panelda yoki <b>Alt+↑ / Alt+↓</b>,
 <b>D</b> — eshik (devorga bosing; o'ng tugma: bir/ikki tabaqali, ochilish tomoni, kengligi),
 <b>Z</b> — zina (maydonini torting)<br>
 <b>]</b> / <b>[</b> — tanlanganni joyida 90° o'ngga / chapga aylantirish, <b>Ctrl+Shift+R</b> — istalgan burchak<br>

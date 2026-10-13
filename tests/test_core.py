@@ -390,3 +390,58 @@ def test_walls(qapp, tmp_path):
     assert len(walls) == 1 and walls[0].dxf.const_width == pytest.approx(0.5)
     w.dirty = False
     w.close()
+
+
+def test_wall_thickness_controls(qapp, tmp_path):
+    """Devor qalinligi: panel, Alt+↑/↓, bir nechta devor, xona devorlari, yangi devorlar, saqlash."""
+    from PySide6.QtCore import QPointF
+    from ttysi_cadastre.render import wall_width
+    from ttysi_cadastre.ui.main_window import MainWindow
+    b, f = _sample()                                   # 1 m = 50 px
+    w = MainWindow()
+    w.building = b
+    w.refresh_all()
+    a = w.scene.add_wall([QPointF(150, 500), QPointF(450, 500)])
+    c = w.scene.add_wall([QPointF(150, 600), QPointF(450, 600)], thickness_m=0.12)
+    assert c.wall.thickness == pytest.approx(0.12 * 50)
+
+    # bitta devor: panel sahifasi, uzunlik, qalinlik
+    w.scene.clearSelection()
+    a.setSelected(True)
+    assert w.props.currentIndex() == 4
+    assert w.p_wall_len.text().startswith("6.00 m")
+    w.p_wall_thick.setValue(0.40)
+    assert a.wall.thickness == pytest.approx(20.0)
+    w.change_wall_thickness(+0.05)
+    assert a.wall.thickness == pytest.approx(0.45 * 50)
+    w.undo()
+    assert f.walls[0].thickness == pytest.approx(20.0)
+
+    # ikkita devor birdan
+    w.scene.clearSelection()
+    for it in w.scene.items():
+        if type(it).__name__ == "WallItem":
+            it.setSelected(True)
+    w.p_wall_thick.setValue(0.64)
+    assert all(x.thickness == pytest.approx(32.0) for x in f.walls)
+
+    # xona devorlari (etaj sozlamasi) va bekor qilish
+    w.scene.clearSelection()
+    assert w.props.currentIndex() == 0
+    w.p_room_wall.setValue(0.50)
+    assert f.wall_m == pytest.approx(0.50) and wall_width(f) == pytest.approx(25.0)
+    w.undo()
+    assert f.wall_m == pytest.approx(0.30)
+
+    # yangi devorlar standarti
+    w.p_new_wall.setValue(0.38)
+    d = w.scene.add_wall([QPointF(100, 700), QPointF(200, 700)])
+    assert d.wall.thickness == pytest.approx(0.38 * 50)
+
+    p = str(tmp_path / "t.ttysi")
+    f.wall_m = 0.42
+    b.save(p)
+    assert Building.load(p).floors[0].wall_m == pytest.approx(0.42)
+    w.p_new_wall.setValue(0.25)        # sozlamani asl holiga qaytarish
+    w.dirty = False
+    w.close()

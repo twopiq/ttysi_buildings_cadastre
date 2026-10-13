@@ -564,6 +564,7 @@ class FloorScene(QGraphicsScene):
         self.bg_opacity = 0.6
         self.ortho = True
         self.view_scale = 1.0
+        self.new_wall_m = 0.25      # yangi chiziladigan devorlar qalinligi (metr)
 
     def load(self, floor: Floor | None, bg: QImage | None):
         self.clear()
@@ -627,14 +628,24 @@ class FloorScene(QGraphicsScene):
         self.changed_model.emit()
         return item
 
-    def add_wall(self, points, thickness_m: float = 0.25) -> "WallItem":
+    def add_wall(self, points, thickness_m: float | None = None) -> "WallItem":
         pts = [(q.x(), q.y()) if isinstance(q, QPointF) else tuple(q) for q in points]
-        wall = Wall(points=pts, thickness=meter_px(self.floor) * thickness_m)
+        wall = Wall(points=pts, thickness=meter_px(self.floor) * (thickness_m or self.new_wall_m))
         self.floor.walls.append(wall)
         item = WallItem(wall, self.floor)
         self.addItem(item)
         self.changed_model.emit()
         return item
+
+    def set_wall_thickness(self, walls, thickness_m: float) -> None:
+        """Tanlangan devorlar qalinligi (metr). Eshiklar ham yangi qalinlikda qayta chiziladi."""
+        px = meter_px(self.floor) * thickness_m
+        for it in walls:
+            it.prepareGeometryChange()
+            it.wall.thickness = px
+            it.rebuild()
+        self.update()
+        self.changed_model.emit()
 
     def rotate_selected(self, angle) -> bool:
         """Tanlangan xona, zina va eshiklarni har birini o'z markazi atrofida aylantiradi."""

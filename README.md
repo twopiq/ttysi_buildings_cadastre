@@ -55,9 +55,14 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
    - `P` / `R` — yangi xona chizish;
    - o'ng tugma — xona turini tanlash (xona, koridor, kompyuter xona, zinapoya, hojatxona);
    - `L` — **devor**: xona chegarasidan tashqari alohida devor yoki to'siq. Burchaklarni ketma-ket
-     bosasiz, `Enter` yoki ikki marta bosish bilan tugatasiz. Qalinligi 0.12–0.64 m (o'ng tugma).
+     bosasiz, `Enter` yoki ikki marta bosish bilan tugatasiz.
      Burchaklari sudraladi, qirraga ikki marta bosib yangi burchak qo'shiladi. Eshik bu devorga
      ham yopishadi;
+   - **Devor qalinligi:**
+     - tanlangan devor(lar): o'ngdagi panelda aniq qiymat (0.05–1.50 m, 1 sm qadam) yoki
+       `Alt+↑` / `Alt+↓` (±5 sm); bir nechta devor tanlansa, hammasiga qo'llanadi;
+     - xona devorlari: hech narsa tanlanmaganda paneldagi "Xona devorlari" (shu etaj uchun);
+     - yangi devorlar: paneldagi "Yangi devorlar" — Devor asbobi shu qalinlikda chizadi;
    - `D` — **eshik**: devorga bosasiz va u eng yaqin devorga yopishadi. Sudrab boshqa devorga
      ko'chirish mumkin. O'ng tugma menyusida: bir yoki ikki tabaqali, ochilish tomoni, sharnir tomoni,
      kengligi (0.8–1.8 m);

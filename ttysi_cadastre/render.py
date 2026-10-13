@@ -28,7 +28,8 @@ def meter_px(floor: Floor) -> float:
 
 
 def wall_width(floor: Floor) -> float:
-    return meter_px(floor) * 0.3
+    """Xona devorlarining qalinligi piksellarda (etaj sozlamasi, standart 0.30 m)."""
+    return meter_px(floor) * (floor.wall_m or 0.30)
 
 
 def label_px(floor: Floor) -> int:
