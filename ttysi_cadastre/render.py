@@ -8,6 +8,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF
 
 from .equipment import EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
+from .geometry import door_cut, door_lines, stair_lines
 from .model import Building, Floor
 
 
@@ -64,6 +65,27 @@ def draw_equipment_symbol(p: QPainter, code: str, center: QPointF, r: float, pla
     p.drawText(QRectF(center.x() - r, center.y() - r, 2 * r, 2 * r), Qt.AlignCenter, t.label)
 
 
+def draw_door(p: QPainter, door, wall: float, cut_color: QColor | None = None) -> None:
+    """Eshik: devorda oq o'rin, kesak belgilari, ochiq tabaqa va ochilish yoyi."""
+    p.setPen(Qt.NoPen)
+    p.setBrush(cut_color or QColor("white"))
+    p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in door_cut(door, wall)]))
+    pen = QPen(QColor("#212121"), max(1.0, wall * 0.22))
+    pen.setCapStyle(Qt.FlatCap)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    for ln in door_lines(door, wall):
+        p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in ln]))
+
+
+def draw_stairs(p: QPainter, room, floor: Floor) -> None:
+    """Zina: pog'onalar (0.3 m) va yo'nalish strelkasi."""
+    p.setPen(QPen(QColor("#616161"), max(1.0, wall_width(floor) * 0.18)))
+    p.setBrush(Qt.NoBrush)
+    for ln in stair_lines(room.points, meter_px(floor) * 0.3):
+        p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in ln]))
+
+
 def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImage | None = None) -> None:
     """Etajni uning o'z koordinatalarida (piksellarda) chizadi."""
     if opts.background and background is not None and not background.isNull():
@@ -77,12 +99,17 @@ def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImag
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(ROOM_KINDS.get(room.kind, ROOM_KINDS["room"])[1]))
         p.drawPolygon(poly)
+    for room in floor.rooms:
+        if room.kind == "stairs":
+            draw_stairs(p, room, floor)
     pen = QPen(QColor("#212121"), ww)
     pen.setJoinStyle(Qt.MiterJoin)
     p.setPen(pen)
     p.setBrush(Qt.NoBrush)
     for room in floor.rooms:
         p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in room.points]))
+    for door in floor.doors:
+        draw_door(p, door, ww)
     if opts.room_names:
         f = QFont("Arial")
         f.setPixelSize(label_px(floor))

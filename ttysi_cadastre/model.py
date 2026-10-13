@@ -79,6 +79,19 @@ class Equipment:
 
 
 @dataclass
+class Door:
+    """Eshik: devor o'qidagi markazi, devor yo'nalishi (gradus) va kengligi (piksel)."""
+    x: float
+    y: float
+    angle: float = 0.0
+    width: float = 30.0
+    leaves: int = 1             # 1 - bir tabaqali, 2 - ikki tabaqali
+    flip: bool = False          # ochilish tomoni (devorning qaysi tarafiga)
+    mirror: bool = False        # sharnir (petlya) chapda yoki o'ngda
+    id: str = field(default_factory=new_id)
+
+
+@dataclass
 class Floor:
     name: str
     image: bytes | None = None  # fon rasmi (JPG/PNG), perspektivasi to'g'rilangan
@@ -86,6 +99,7 @@ class Floor:
     height: int = 1400
     rooms: list[Room] = field(default_factory=list)
     equipment: list[Equipment] = field(default_factory=list)
+    doors: list[Door] = field(default_factory=list)
     scale_m_per_px: float | None = None   # masshtab (1 piksel necha metr)
     id: str = field(default_factory=new_id)
 
@@ -103,6 +117,7 @@ class Floor:
             "scale_m_per_px": self.scale_m_per_px,
             "rooms": [asdict(r) for r in self.rooms],
             "equipment": [asdict(e) for e in self.equipment],
+            "doors": [asdict(d) for d in self.doors],
         }
 
     def content_dict(self) -> dict:
@@ -122,6 +137,10 @@ class Floor:
         self.equipment = [Equipment(code=e["code"], x=e["x"], y=e["y"], note=e.get("note", ""),
                                     id=e.get("id") or new_id(), status=e.get("status", "existing"))
                           for e in d.get("equipment", [])]
+        self.doors = [Door(x=o["x"], y=o["y"], angle=o.get("angle", 0.0), width=o.get("width", 30.0),
+                           leaves=o.get("leaves", 1), flip=o.get("flip", False), mirror=o.get("mirror", False),
+                           id=o.get("id") or new_id())
+                      for o in d.get("doors", [])]
 
     @classmethod
     def from_dict(cls, d: dict, image: bytes | None) -> "Floor":

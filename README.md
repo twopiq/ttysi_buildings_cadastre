@@ -53,7 +53,12 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
    - `B` — xonani chiziq bilan bo'lish;
    - `Ctrl+M` — xonalarni birlashtirish;
    - `P` / `R` — yangi xona chizish;
-   - o'ng tugma — xona turini tanlash (xona, koridor, zinapoya, hojatxona).
+   - o'ng tugma — xona turini tanlash (xona, koridor, kompyuter xona, zinapoya, hojatxona);
+   - `D` — **eshik**: devorga bosasiz va u eng yaqin devorga yopishadi. Sudrab boshqa devorga
+     ko'chirish mumkin. O'ng tugma menyusida: bir yoki ikki tabaqali, ochilish tomoni, sharnir tomoni,
+     kengligi (0.8–1.8 m);
+   - `Z` — **zina**: maydonini to'rtburchak qilib torting. Ichida pog'onalar va yo'nalish strelkasi
+     chiziladi.
 5. **Mavjud va kerak jihozlar.** Har bir jihozning holati bor:
    - **Mavjud** — chizmada to'liq rangli belgi;
    - **Kerak (o'rnatilishi rejada)** — oq fonli, punktir chegarali belgi.
@@ -72,6 +77,7 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
      kesimida mavjud jihozlar soni, har bir xonadagi jihozlar, jihozlarning to'liq ro'yxati va
      **"Kerak (reja)"** varag'i: qaysi bino, etaj va xonaga nima o'rnatish kerakligi.
    - DXF'da rejadagi jihozlar alohida `AT_<kod>_KERAK` qatlamida, punktir chiziq bilan chiqadi.
+     Eshiklar `ESHIKLAR`, zina pog'onalari esa `ZINALAR` qatlamida bo'ladi.
 
 Loyiha bitta `.ttysi` faylda saqlanadi: bino, barcha etajlar va kadastr rasmlari shu faylning ichida bo'ladi.
 

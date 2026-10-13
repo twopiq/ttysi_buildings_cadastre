@@ -9,8 +9,10 @@ from PySide6.QtGui import QImage, QPageLayout, QPageSize, QPainter, QPdfWriter
 from PySide6.QtSvg import QSvgGenerator
 
 from .equipment import EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
+from .geometry import door_lines, stair_lines
 from .model import Building, Floor
-from .render import RenderOptions, draw_page, is_wide, label_px, room_label, symbol_radius
+from .render import (RenderOptions, draw_page, is_wide, label_px, meter_px, room_label, symbol_radius,
+                     wall_width)
 
 
 def _page_size(floor: Floor, long_side: int, legend: bool) -> tuple[int, int]:
@@ -123,6 +125,18 @@ def export_dxf(path: str, building: Building, floor: Floor) -> None:
             cx, cy = room.centroid()
             msp.add_text(label, height=text_h, dxfattribs={"layer": "XONA_NOMLARI"}) \
                .set_placement(pt(cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
+
+    # Eshiklar va zina pog'onalari
+    doc.layers.add("ESHIKLAR", color=30)
+    doc.layers.add("ZINALAR", color=8)
+    ww = wall_width(floor)
+    for door in floor.doors:
+        for ln in door_lines(door, ww):
+            msp.add_lwpolyline([pt(x, y) for x, y in ln], dxfattribs={"layer": "ESHIKLAR"})
+    for room in floor.rooms:
+        if room.kind == "stairs":
+            for ln in stair_lines(room.points, meter_px(floor) * 0.3):
+                msp.add_lwpolyline([pt(x, y) for x, y in ln], dxfattribs={"layer": "ZINALAR"})
 
     # AT jihozlari - bloklar sifatida (CAD'da sanash va almashtirish oson)
     r = symbol_radius(floor) * k

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen,
@@ -13,12 +14,14 @@ from PySide6.QtWidgets import (QGraphicsItem,
                                QGraphicsView, QMenu)
 
 from ..equipment import ROOM_KINDS, get_type
-from ..model import Equipment, Floor, Room
-from ..render import draw_equipment_symbol, label_px, room_label, symbol_radius, wall_width
+from ..geometry import nearest_wall
+from ..model import Door, Equipment, Floor, Room
+from ..render import (draw_door, draw_equipment_symbol, draw_stairs, label_px, meter_px, room_label,
+                      symbol_radius, wall_width)
 
 # Asboblar
-SELECT, ROOM_POLY, ROOM_RECT, EQUIP, SPLIT, SCALE, PAN = (
-    "select", "room_poly", "room_rect", "equip", "split", "scale", "pan")
+SELECT, ROOM_POLY, ROOM_RECT, EQUIP, SPLIT, SCALE, PAN, DOOR, STAIRS = (
+    "select", "room_poly", "room_rect", "equip", "split", "scale", "pan", "door", "stairs")
 
 SNAP_PX = 10   # ekran piksellarida yopishish masofasi
 
@@ -87,6 +90,14 @@ class RoomItem(QGraphicsPolygonItem):
         pen.setJoinStyle(Qt.MiterJoin)
         self.setPen(pen)
         self.update_label()
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        if self.room.kind == "stairs":
+            pts = [(q.x(), q.y()) for q in self.polygon()]
+            painter.save()
+            draw_stairs(painter, Room(points=pts, kind="stairs"), self.floor)
+            painter.restore()
 
     def update_label(self):
         self.label.setText(room_label(self.room, self.floor))
@@ -200,6 +211,103 @@ class RoomItem(QGraphicsPolygonItem):
             scene.delete_selected()
 
 
+class DoorItem(QGraphicsItem):
+    """Eshik: sudralganda eng yaqin devorga yopishadi va uning yo'nalishini oladi."""
+
+    WIDTHS = (0.8, 0.9, 1.0, 1.2, 1.5, 1.8)
+
+    def __init__(self, door: Door, floor: Floor):
+        super().__init__()
+        self.door = door
+        self.floor = floor
+        self.wall = wall_width(floor)
+        self.setPos(door.x, door.y)
+        self.setFlags(QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable
+                      | QGraphicsItem.ItemSendsGeometryChanges)
+        self.setZValue(3)
+        self.setToolTip("Eshik. O'ng tugma - turi, ochilish tomoni, kengligi")
+
+    def boundingRect(self):
+        r = self.door.width * 1.15 + self.wall
+        return QRectF(-r, -r, 2 * r, 2 * r)
+
+    def shape(self):
+        # tanlash uchun: eshik o'rni va ochilish maydoni
+        path = QPainterPath()
+        r = self.door.width * 0.6 + self.wall
+        path.addEllipse(QPointF(0, 0), r, r)
+        return path
+
+    def paint(self, p: QPainter, option, widget=None):
+        p.setRenderHint(QPainter.Antialiasing)
+        draw_door(p, replace(self.door, x=0.0, y=0.0), self.wall)
+        if self.isSelected():
+            pen = QPen(QColor("#1565c0"), 2, Qt.DashLine)
+            pen.setCosmetic(True)
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            r = self.door.width * 0.6 + self.wall
+            p.drawEllipse(QPointF(0, 0), r, r)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.ItemPositionChange and self.scene():
+            snap = nearest_wall(self.floor.rooms, value.x(), value.y())
+            if snap and snap[3] < self.door.width:
+                self.prepareGeometryChange()
+                self.door.angle = snap[2]
+                self.update()
+                return QPointF(snap[0], snap[1])
+        return super().itemChange(change, value)
+
+    def commit(self):
+        self.door.x, self.door.y = self.pos().x(), self.pos().y()
+
+    def contextMenuEvent(self, event):
+        scene: FloorScene = self.scene()
+        if not self.isSelected():
+            scene.clearSelection()
+            self.setSelected(True)
+        menu = QMenu()
+        single = menu.addAction("Bir tabaqali")
+        double = menu.addAction("Ikki tabaqali")
+        single.setCheckable(True)
+        double.setCheckable(True)
+        single.setChecked(self.door.leaves == 1)
+        double.setChecked(self.door.leaves == 2)
+        flip = menu.addAction("Ochilish tomonini almashtirish")
+        mirror = menu.addAction("Sharnir tomonini almashtirish")
+        mirror.setEnabled(self.door.leaves == 1)
+        sub = menu.addMenu("Kengligi")
+        widths = {}
+        m = meter_px(self.floor)
+        for wm in self.WIDTHS:
+            a = sub.addAction(f"{wm:.1f} m")
+            a.setCheckable(True)
+            a.setChecked(abs(self.door.width - wm * m) < m * 0.05)
+            widths[a] = wm * m
+        menu.addSeparator()
+        delete = menu.addAction("O'chirish")
+        act = menu.exec(event.screenPos())
+        if act is None:
+            return
+        if act == delete:
+            scene.delete_selected()
+            return
+        self.prepareGeometryChange()
+        if act == single:
+            self.door.leaves = 1
+        elif act == double:
+            self.door.leaves = 2
+        elif act == flip:
+            self.door.flip = not self.door.flip
+        elif act == mirror:
+            self.door.mirror = not self.door.mirror
+        elif act in widths:
+            self.door.width = widths[act]
+        self.update()
+        scene.changed_model.emit()
+
+
 class EquipmentItem(QGraphicsItem):
     def __init__(self, eq: Equipment, floor: Floor):
         super().__init__()
@@ -300,6 +408,8 @@ class FloorScene(QGraphicsScene):
             self.bg_item.setTransformationMode(Qt.SmoothTransformation)
         for room in floor.rooms:
             self.addItem(RoomItem(room, floor))
+        for door in floor.doors:
+            self.addItem(DoorItem(door, floor))
         for eq in floor.equipment:
             self.addItem(EquipmentItem(eq, floor))
 
@@ -336,6 +446,19 @@ class FloorScene(QGraphicsScene):
         self.changed_model.emit()
         return item
 
+    def add_door(self, pos: QPointF) -> "DoorItem":
+        """Eshikni eng yaqin devorga qo'yadi (standart kenglik 0.9 m)."""
+        width = meter_px(self.floor) * 0.9
+        door = Door(x=pos.x(), y=pos.y(), width=width)
+        snap = nearest_wall(self.floor.rooms, pos.x(), pos.y())
+        if snap and snap[3] < width * 1.5:
+            door.x, door.y, door.angle = snap[0], snap[1], snap[2]
+        self.floor.doors.append(door)
+        item = DoorItem(door, self.floor)
+        self.addItem(item)
+        self.changed_model.emit()
+        return item
+
     def delete_selected(self):
         items = self.selectedItems()
         if not items:
@@ -345,6 +468,8 @@ class FloorScene(QGraphicsScene):
                 self.floor.rooms.remove(it.room)
             elif isinstance(it, EquipmentItem):
                 self.floor.equipment.remove(it.eq)
+            elif isinstance(it, DoorItem):
+                self.floor.doors.remove(it.door)
             else:
                 continue
             self.removeItem(it)
@@ -380,6 +505,9 @@ class FloorScene(QGraphicsScene):
                 it.commit(emit=False)
                 moved = True
             elif isinstance(it, EquipmentItem) and (it.pos().x(), it.pos().y()) != (it.eq.x, it.eq.y):
+                it.commit()
+                moved = True
+            elif isinstance(it, DoorItem) and (it.pos().x(), it.pos().y()) != (it.door.x, it.door.y):
                 it.commit()
                 moved = True
         super().mouseReleaseEvent(event)
@@ -425,6 +553,8 @@ class FloorView(QGraphicsView):
             SELECT: "Tanlash: bosing yoki ramka torting. Ikki marta bosish - burchak qo'shish. Del - o'chirish.",
             ROOM_POLY: "Xona chizish: burchaklarni ketma-ket bosing. Enter / ikki marta bosish / birinchi nuqta - tugatish. Esc - bekor.",
             ROOM_RECT: "To'rtburchak xona: sichqonchani bosib, torting.",
+            DOOR: "Eshik: devorga bosing (eng yaqin devorga yopishadi). O'ng tugma - turi, tomoni, kengligi.",
+            STAIRS: "Zina: sichqonchani bosib, zina maydonini torting.",
             EQUIP: f"{get_type(self.equip_code).name}: joyini bosing.",
             SPLIT: "Xonani bo'lish: bo'lish chizig'ining ikki nuqtasini bosing.",
             SCALE: "Masshtab: uzunligi ma'lum bo'lgan devorning ikki uchini bosing.",
@@ -448,7 +578,7 @@ class FloorView(QGraphicsView):
             self.preview.setZValue(100)
             self.fscene.addItem(self.preview)
         path = QPainterPath()
-        if self.tool == ROOM_RECT and self.rect_start is not None and cursor is not None:
+        if self.tool in (ROOM_RECT, STAIRS) and self.rect_start is not None and cursor is not None:
             path.addRect(QRectF(self.rect_start, cursor).normalized())
         elif self.points:
             path.moveTo(self.points[0])
@@ -508,8 +638,10 @@ class FloorView(QGraphicsView):
                 return
             self.points.append(p)
             self._update_preview(p)
-        elif self.tool == ROOM_RECT:
+        elif self.tool in (ROOM_RECT, STAIRS):
             self.rect_start = p
+        elif self.tool == DOOR:
+            self.fscene.add_door(self.mapToScene(event.position().toPoint()))
         elif self.tool == EQUIP:
             self.fscene.add_equipment(self.equip_code, p, planned=self.place_planned)
         elif self.tool in (SPLIT, SCALE):
@@ -535,7 +667,7 @@ class FloorView(QGraphicsView):
             p = self._ortho_lock(self._snapped(event.position().toPoint()),
                                  bool(event.modifiers() & Qt.ShiftModifier))
             self._update_preview(p)
-        elif self.tool == ROOM_RECT and self.rect_start is not None:
+        elif self.tool in (ROOM_RECT, STAIRS) and self.rect_start is not None:
             self._update_preview(self._snapped(event.position().toPoint()))
         super().mouseMoveEvent(event)
 
@@ -544,11 +676,12 @@ class FloorView(QGraphicsView):
             self._panning = False
             self.viewport().setCursor(Qt.ArrowCursor if self.tool == SELECT else Qt.CrossCursor)
             return
-        if self.tool == ROOM_RECT and self.rect_start is not None and event.button() == Qt.LeftButton:
+        if self.tool in (ROOM_RECT, STAIRS) and self.rect_start is not None and event.button() == Qt.LeftButton:
             r = QRectF(self.rect_start, self._snapped(event.position().toPoint())).normalized()
             self.cancel_drawing()
             if r.width() > 3 and r.height() > 3:
-                self.fscene.add_room([r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft()])
+                self.fscene.add_room([r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft()],
+                                     kind="stairs" if self.tool == STAIRS else "room")
             return
         super().mouseReleaseEvent(event)
 

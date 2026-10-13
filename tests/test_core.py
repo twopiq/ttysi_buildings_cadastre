@@ -242,3 +242,48 @@ def test_planned_equipment(qapp, tmp_path):
     assert not next(e for e in f.equipment if e.code == "W").planned
     w.dirty = False
     w.close()
+
+
+def test_doors_and_stairs(qapp, tmp_path):
+    """Eshik devorga yopishadi; eshik va zina saqlanadi, chiziladi va DXF'ga chiqadi."""
+    from PySide6.QtCore import QPointF
+    from ttysi_cadastre.export import export_dxf, export_image
+    from ttysi_cadastre.geometry import door_lines, stair_lines
+    from ttysi_cadastre.model import Door
+    from ttysi_cadastre.render import RenderOptions
+    from ttysi_cadastre.ui.main_window import MainWindow
+    b, f = _sample()
+    f.rooms.append(Room(points=[(100, 400), (200, 400), (200, 600), (100, 600)], kind="stairs"))
+    w = MainWindow()
+    w.building = b
+    w.refresh_all()
+    # vertikal devor (x=500) yoniga bosish -> eshik devorga yopishadi va vertikal bo'ladi
+    item = w.scene.add_door(QPointF(507, 250))
+    d = item.door
+    assert abs(d.x - 500) < 1e-6 and abs(abs(d.angle) - 90) < 1e-6
+    assert abs(d.width - 0.9 / f.scale_m_per_px) < 1e-6
+    assert len(f.doors) == 1
+    w.undo()
+    assert not f.doors
+    w.redo()
+    assert len(f.doors) == 1
+    f.doors[0].leaves = 2
+    # bir tabaqali: 2 kesak + tabaqa + yoy; ikki tabaqali: 2 + 2*2
+    assert len(door_lines(Door(x=0, y=0, width=40), 5)) == 4
+    assert len(door_lines(f.doors[0], 5)) == 6
+    steps = stair_lines(f.rooms[-1].points, 0.3 / f.scale_m_per_px)
+    assert len(steps) > 10
+
+    p = str(tmp_path / "e.ttysi")
+    b.save(p)
+    f2 = Building.load(p).floors[0]
+    assert f2.doors[0].leaves == 2 and f2.rooms[-1].kind == "stairs"
+
+    export_image(str(tmp_path / "e.png"), b, f, RenderOptions(), 1000)
+    dx = str(tmp_path / "e.dxf")
+    export_dxf(dx, b, f)
+    msp = ezdxf.readfile(dx).modelspace()
+    assert len(msp.query('LWPOLYLINE[layer=="ESHIKLAR"]')) == 6
+    assert len(msp.query('LWPOLYLINE[layer=="ZINALAR"]')) > 10
+    w.dirty = False
+    w.close()

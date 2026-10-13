@@ -21,8 +21,8 @@ from ..report import export_excel
 from ..geometry import merge_rooms, split_room
 from ..model import Building, Equipment, Floor, Room
 from ..render import RenderOptions, draw_equipment_symbol, equipment_counts, wall_width
-from .canvas import (EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, EquipmentItem, FloorScene,
-                     FloorView, RoomItem)
+from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, EquipmentItem,
+                     FloorScene, FloorView, RoomItem)
 from .import_dialog import ImportDialog, PdfPageDialog, RedetectDialog, image_paper_mm_per_px
 
 FILE_FILTER = "TTYSI kadastr loyihasi (*.ttysi)"
@@ -205,6 +205,8 @@ class MainWindow(QMainWindow):
         tool("Xona\n(burchak)", "P", ROOM_POLY, tip="Xona/koridorni burchaklari bo'yicha chizish")
         tool("Xona\n(to'rtburchak)", "R", ROOM_RECT)
         tool("Xonani\nbo'lish", "B", SPLIT)
+        tool("Eshik", "D", DOOR, tip="Eshik qo'yish: devorga bosing")
+        tool("Zina", "Z", STAIRS, tip="Zinapoya chizish: maydonini torting")
         tb.addSeparator()
         for t in EQUIPMENT_TYPES:
             tool(t.label, None, EQUIP, t.code, tip=f"{t.name} qo'yish (tanlangan belgining turi: {t.key})")
@@ -403,6 +405,8 @@ class MainWindow(QMainWindow):
             rooms[r.kind] = rooms.get(r.kind, 0) + 1
         lines.append("")
         lines += [f"{ROOM_KINDS[k][0]}: <b>{n}</b>" for k, n in rooms.items()]
+        if f.doors:
+            lines.append(f"Eshiklar: <b>{len(f.doors)}</b>")
         if f.scale_m_per_px:
             total = sum(r.area() for r in f.rooms) * f.scale_m_per_px ** 2
             lines.append(f"Umumiy maydon: <b>{total:.1f} m²</b>")
@@ -957,6 +961,8 @@ Qora ruchkadagi belgilarni asboblar panelidan qo'lda qo'ying.</li>
 {keys}<br>
 <i>Qog'ozda: Kam / X → 3 (Kamera), A.S → 5 (Switch), t → 6 (Tochka), K.S → ikkita belgi (3 va 5)</i><br>
 <b>V</b> — tanlash, <b>P</b> — xona (burchaklar), <b>R</b> — to'rtburchak xona, <b>B</b> — bo'lish<br>
+<b>D</b> — eshik (devorga bosing; o'ng tugma: bir/ikki tabaqali, ochilish tomoni, kengligi),
+<b>Z</b> — zina (maydonini torting)<br>
 <b>F8</b> — orto rejim, <b>Shift</b> — orto rejimni vaqtincha teskarisiga<br>
 <b>G'ildirak</b> — kattalashtirish, <b>o'rta tugma / Probel+sudrash</b> — surish, <b>Ctrl+0</b> — butun chizma<br>
 <b>Ctrl+Z / Ctrl+Y</b> — bekor qilish / qaytarish, <b>Esc</b> — chizishni bekor qilish
