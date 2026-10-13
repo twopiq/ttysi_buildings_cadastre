@@ -26,6 +26,8 @@ from ..updater import is_frozen
 from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, WALL, EquipmentItem,
                      FloorScene, FloorView, RoomItem, WallItem)
 from .import_dialog import ImportDialog, PdfPageDialog, RedetectDialog, image_paper_mm_per_px
+from .review_dialog import ReviewDialog
+from .shortcuts import ShortcutsDialog, display, registry
 from .update_dialog import Updater, UpdateSettingsDialog, load_settings
 
 FILE_FILTER = "TTYSI kadastr loyihasi (*.ttysi)"
@@ -121,9 +123,9 @@ class MainWindow(QMainWindow):
         self.view.status.connect(lambda t: self.statusBar().showMessage(t))
         self.view.split_requested.connect(self.split_room)
         self.view.scale_requested.connect(self.set_scale)
-        self.view.digit_pressed = self.on_digit
 
         self.updater = Updater(self)
+        self.sc_actions: dict[str, QAction] = {}
         self.build_actions()
         self.build_floor_dock()
         self.build_props_dock()
@@ -137,66 +139,71 @@ class MainWindow(QMainWindow):
     # ================================================================ UI qurish
     def build_actions(self):
         mb = self.menuBar()
+        A = self._act
         m = mb.addMenu("&Fayl")
-        self._act(m, "Yangi loyiha", self.new_project, QKeySequence.New)
-        self._act(m, "Ochish...", self.open_project, QKeySequence.Open)
-        self._act(m, "Saqlash", self.save_project, QKeySequence.Save)
-        self._act(m, "Boshqa nom bilan saqlash...", self.save_project_as, QKeySequence("Ctrl+Shift+S"))
+        A(m, "Yangi loyiha", self.new_project, QKeySequence.New, "file.new")
+        A(m, "Ochish...", self.open_project, QKeySequence.Open, "file.open")
+        A(m, "Saqlash", self.save_project, QKeySequence.Save, "file.save")
+        A(m, "Boshqa nom bilan saqlash...", self.save_project_as, "Ctrl+Shift+S", "file.save_as")
         m.addSeparator()
         ex = m.addMenu("Eksport")
-        self._act(ex, "Rasm (PNG / JPG)...", lambda: self.export("image"), QKeySequence("Ctrl+E"))
-        self._act(ex, "Vektor rasm (SVG)...", lambda: self.export("svg"))
-        self._act(ex, "PDF - joriy etaj...", lambda: self.export("pdf"))
-        self._act(ex, "PDF - barcha etajlar...", lambda: self.export("pdf_all"))
-        self._act(ex, "AutoCAD chizma (DXF)...", lambda: self.export("dxf"))
+        A(ex, "Rasm (PNG / JPG)...", lambda: self.export("image"), "Ctrl+E", "export.image")
+        A(ex, "Vektor rasm (SVG)...", lambda: self.export("svg"), None, "export.svg")
+        A(ex, "PDF - joriy etaj...", lambda: self.export("pdf"), None, "export.pdf")
+        A(ex, "PDF - barcha etajlar...", lambda: self.export("pdf_all"), None, "export.pdf_all")
+        A(ex, "AutoCAD chizma (DXF)...", lambda: self.export("dxf"), None, "export.dxf")
         ex.addSeparator()
-        self._act(ex, "Excel hisobot - joriy bino...", self.export_excel_current, QKeySequence("Ctrl+R"))
-        self._act(ex, "Excel hisobot - bir nechta bino...", self.export_excel_many)
+        A(ex, "Excel hisobot - joriy bino...", self.export_excel_current, "Ctrl+R", "export.excel")
+        A(ex, "Excel hisobot - bir nechta bino...", self.export_excel_many, None, "export.excel_many")
         m.addSeparator()
-        self._act(m, "Chiqish", self.close, QKeySequence.Quit)
+        A(m, "Chiqish", self.close, QKeySequence.Quit, "file.quit")
 
         m = mb.addMenu("&Tahrir")
-        self.a_undo = self._act(m, "Bekor qilish", self.undo, QKeySequence.Undo)
-        self.a_redo = self._act(m, "Qaytarish", self.redo, QKeySequence("Ctrl+Y"))
-        self._act(m, "", self.redo, QKeySequence("Ctrl+Shift+Z")).setVisible(False)
+        self.a_undo = A(m, "Bekor qilish", self.undo, QKeySequence.Undo, "edit.undo")
+        self.a_redo = A(m, "Qaytarish", self.redo, "Ctrl+Y", "edit.redo")
+        A(m, "Qaytarish (2)", self.redo, "Ctrl+Shift+Z", "edit.redo2").setVisible(False)
         m.addSeparator()
-        self._act(m, "O'chirish", self.scene.delete_selected, QKeySequence.Delete)
-        self._act(m, "Hammasini tanlash", self.select_all, QKeySequence.SelectAll)
-        self._act(m, "Jihoz holatini almashtirish (mavjud / kerak)", self.toggle_status, QKeySequence("Ctrl+K"))
-        self._act(m, "Tanlangan xonalarni birlashtirish", self.merge_selected, QKeySequence("Ctrl+M"))
+        A(m, "O'chirish", self.scene.delete_selected, QKeySequence.Delete, "edit.delete")
+        A(m, "Hammasini tanlash", self.select_all, QKeySequence.SelectAll, "edit.select_all")
+        A(m, "Jihoz holatini almashtirish (mavjud / kerak)", self.toggle_status, "Ctrl+K", "edit.toggle_status")
+        A(m, "Tanlangan xonalarni birlashtirish", self.merge_selected, "Ctrl+M", "edit.merge")
         tm = m.addMenu("Devor qalinligi")
-        self._act(tm, "Qalinlashtirish (+5 sm)", lambda: self.change_wall_thickness(0.05), QKeySequence("Alt+Up"))
-        self._act(tm, "Yupqalashtirish (-5 sm)", lambda: self.change_wall_thickness(-0.05), QKeySequence("Alt+Down"))
+        A(tm, "Qalinlashtirish (+5 sm)", lambda: self.change_wall_thickness(0.05), "Alt+Up", "wall.thicker")
+        A(tm, "Yupqalashtirish (-5 sm)", lambda: self.change_wall_thickness(-0.05), "Alt+Down", "wall.thinner")
         rm = m.addMenu("Aylantirish (joyida)")
-        self._act(rm, "90° o'ngga", lambda: self.rotate_selected(90.0), QKeySequence("]"))
-        self._act(rm, "90° chapga", lambda: self.rotate_selected(-90.0), QKeySequence("["))
-        self._act(rm, "180°", lambda: self.rotate_selected(180.0))
-        self._act(rm, "Burchak kiritish...", lambda: self.rotate_selected("custom"), QKeySequence("Ctrl+Shift+R"))
-        self._act(m, "Keyingi tasdiqlanmagan belgi", self.select_next_unknown, QKeySequence("N"))
+        A(rm, "90° o'ngga", lambda: self.rotate_selected(90.0), "]", "rotate.cw")
+        A(rm, "90° chapga", lambda: self.rotate_selected(-90.0), "[", "rotate.ccw")
+        A(rm, "180°", lambda: self.rotate_selected(180.0), None, "rotate.180")
+        A(rm, "Burchak kiritish...", lambda: self.rotate_selected("custom"), "Ctrl+Shift+R", "rotate.custom")
+        m.addSeparator()
+        A(m, "Belgilarni tasdiqlash...", self.open_review, "Ctrl+T", "review.open")
+        A(m, "Keyingi tasdiqlanmagan belgi", self.select_next_unknown, "N", "review.next")
+        m.addSeparator()
+        A(m, "Klaviatura tugmalari...", self.edit_shortcuts, "Ctrl+,", "app.shortcuts")
 
         m = mb.addMenu("&Etaj")
-        self._act(m, "PDF / rasmdan yangi etaj qo'shish...", self.add_floor_from_image, QKeySequence("Ctrl+I"))
-        self._act(m, "Bo'sh etaj qo'shish", self.add_empty_floor)
-        self._act(m, "Qayta avtomatik chizish...", self.redetect)
-        self._act(m, "Masshtabni belgilash", lambda: self.select_tool(SCALE))
-        self._act(m, "Xonalarni qayta raqamlash...", self.renumber_rooms)
-        self._act(m, "Etaj nomini o'zgartirish...", self.rename_floor, QKeySequence("F2"))
-        self._act(m, "Etajni o'chirish", self.delete_floor)
+        A(m, "PDF / rasmdan yangi etaj qo'shish...", self.add_floor_from_image, "Ctrl+I", "floor.import")
+        A(m, "Bo'sh etaj qo'shish", self.add_empty_floor, None, "floor.empty")
+        A(m, "Qayta avtomatik chizish...", self.redetect, None, "floor.redetect")
+        A(m, "Masshtabni belgilash", lambda: self.select_tool(SCALE), None, "floor.scale")
+        A(m, "Xonalarni qayta raqamlash...", self.renumber_rooms, None, "floor.renumber")
+        A(m, "Etaj nomini o'zgartirish...", self.rename_floor, "F2", "floor.rename")
+        A(m, "Etajni o'chirish", self.delete_floor, None, "floor.delete")
 
         m = mb.addMenu("&Ko'rinish")
-        self._act(m, "Butun chizmani ko'rsatish", self.view.zoom_fit, QKeySequence("Ctrl+0"))
-        self.a_ortho = self._act(m, "Orto rejim (faqat gorizontal/vertikal)", self.toggle_ortho, QKeySequence("F8"))
+        A(m, "Butun chizmani ko'rsatish", self.view.zoom_fit, "Ctrl+0", "view.fit")
+        self.a_ortho = A(m, "Orto rejim (faqat gorizontal/vertikal)", self.toggle_ortho, "F8", "view.ortho")
         self.a_ortho.setCheckable(True)
         self.a_ortho.setChecked(True)
 
         m = mb.addMenu("&Yordam")
-        self._act(m, "Qo'llanma", self.show_help, QKeySequence.HelpContents)
+        A(m, "Qo'llanma", self.show_help, QKeySequence.HelpContents, "help.manual")
         m.addSeparator()
-        self._act(m, "Yangilanishni tekshirish...", lambda: self.updater.check(silent=False))
-        self._act(m, "Yangilanish sozlamalari...", lambda: UpdateSettingsDialog(self).exec())
-        self._act(m, "Dastur haqida", lambda: QMessageBox.about(
+        A(m, "Yangilanishni tekshirish...", lambda: self.updater.check(silent=False), None, "help.update")
+        A(m, "Yangilanish sozlamalari...", lambda: UpdateSettingsDialog(self).exec(), None, "help.update_settings")
+        A(m, "Dastur haqida", lambda: QMessageBox.about(
             self, "Dastur haqida",
-            f"TTYSI Binolar kadastri — AT jihozlari xaritasi\nVersiya {__version__}"))
+            f"TTYSI Binolar kadastri — AT jihozlari xaritasi\nVersiya {__version__}"), None, "help.about")
 
         tb = QToolBar("Asboblar")
         tb.setObjectName("tools")
@@ -204,47 +211,91 @@ class MainWindow(QMainWindow):
         self.addToolBar(Qt.LeftToolBarArea, tb)
         self.tool_group = QActionGroup(self)
         self.tool_actions = {}
+        reg = registry()
 
         def tool(text, key, tool_id, code=None, tip=""):
+            sid = f"tool.{tool_id}" + (f".{code}" if code else "")
             a = QAction(text, self)
             a.setCheckable(True)
-            if key:
-                a.setShortcut(QKeySequence(key))
-            a.setToolTip(f"{tip or text} ({key})" if key else (tip or text))
             if code:
                 a.setIcon(type_icon(code))
             a.triggered.connect(lambda: self.select_tool(tool_id, code))
+            a.setProperty("tip", tip or text.replace("\n", " "))
             self.tool_group.addAction(a)
             tb.addAction(a)
             self.tool_actions[(tool_id, code)] = a
+            if key is not None:
+                reg.register(sid, a.property("tip"), key, "Asboblar")
+                self.sc_actions[sid] = a
+            self._refresh_tip(a, sid)
             return a
 
         tool("Tanlash", "V", SELECT)
         tool("Xona\n(burchak)", "P", ROOM_POLY, tip="Xona/koridorni burchaklari bo'yicha chizish")
-        tool("Xona\n(to'rtburchak)", "R", ROOM_RECT)
-        tool("Devor", "L", WALL, tip="Mustaqil devor chizish: burchaklarni bosing, Enter - tugatish")
-        tool("Xonani\nbo'lish", "B", SPLIT)
-        tool("Eshik", "D", DOOR, tip="Eshik qo'yish: devorga bosing")
-        tool("Zina", "Z", STAIRS, tip="Zinapoya chizish: maydonini torting")
+        tool("Xona\n(to'rtburchak)", "R", ROOM_RECT, tip="To'rtburchak xona")
+        tool("Devor", "L", WALL, tip="Devor chizish (Enter - tugatish)")
+        tool("Xonani\nbo'lish", "B", SPLIT, tip="Xonani bo'lish")
+        tool("Eshik", "D", DOOR, tip="Eshik qo'yish")
+        tool("Zina", "Z", STAIRS, tip="Zinapoya chizish")
         tb.addSeparator()
         for t in EQUIPMENT_TYPES:
-            tool(t.label, None, EQUIP, t.code, tip=f"{t.name} qo'yish (tanlangan belgining turi: {t.key})")
+            tool(t.label, None, EQUIP, t.code, tip=f"{t.name} qo'yish")
         tb.addSeparator()
         self.a_plan_mode = QAction("Kerak\n(reja)", self)
         self.a_plan_mode.setCheckable(True)
-        self.a_plan_mode.setShortcut(QKeySequence("Q"))
-        self.a_plan_mode.setToolTip("Yoqilsa, yangi qo'yilgan jihozlar \"kerak (o'rnatilishi rejada)\" bo'ladi (Q)")
+        self.a_plan_mode.setProperty("tip", "Yangi qo'yilgan jihozlar \"kerak (rejada)\" bo'ladi")
         self.a_plan_mode.toggled.connect(lambda on: setattr(self.view, "place_planned", on))
         tb.addAction(self.a_plan_mode)
+        reg.register("tool.plan_mode", "Kerak (reja) rejimi", "Q", "Asboblar")
+        self.sc_actions["tool.plan_mode"] = self.a_plan_mode
 
-    def _act(self, menu, text, slot, shortcut=None):
+        # AT jihozlari: tanlangan belgining turi yoki shu turdagi belgini qo'yish (standart 1-6)
+        for t in EQUIPMENT_TYPES:
+            a = QAction(t.name, self)
+            a.triggered.connect(lambda _=False, code=t.code: self.on_equip_key(code))
+            self.addAction(a)
+            sid = f"equip.{t.code}"
+            reg.register(sid, f"{t.name} ({t.label})", t.key, "AT jihozlari")
+            self.sc_actions[sid] = a
+
+        for sid, a in self.sc_actions.items():
+            a.setShortcut(reg.key(sid))
+            self._refresh_tip(a, sid)
+        reg.listeners.append(self._on_shortcut_changed)
+
+    def _act(self, menu, text, slot, shortcut=None, sid=None):
         a = QAction(text, self)
-        if shortcut:
-            a.setShortcut(shortcut)
         a.triggered.connect(slot)
         menu.addAction(a)
         self.addAction(a)
+        if sid:
+            default = shortcut
+            if isinstance(default, QKeySequence.StandardKey):
+                default = QKeySequence(default).toString(QKeySequence.PortableText)
+            elif isinstance(default, QKeySequence):
+                default = default.toString(QKeySequence.PortableText)
+            group = menu.title().replace("&", "") if hasattr(menu, "title") else "Umumiy"
+            registry().register(sid, text.replace("...", ""), default or "", group)
+            self.sc_actions[sid] = a
+            a.setShortcut(registry().key(sid))
+        elif shortcut:
+            a.setShortcut(shortcut)
         return a
+
+    def _refresh_tip(self, a: QAction, sid: str):
+        tip = a.property("tip")
+        if tip:
+            key = display(registry().key(sid)) if sid in registry().entries else ""
+            a.setToolTip(f"{tip} ({key})" if key else tip)
+
+    def _on_shortcut_changed(self, sid: str, seq: QKeySequence):
+        a = self.sc_actions.get(sid)
+        if a is not None:
+            a.setShortcut(seq)
+            self._refresh_tip(a, sid)
+
+    def edit_shortcuts(self):
+        ShortcutsDialog(registry(), self).exec()
 
     def build_floor_dock(self):
         dock = QDockWidget("Bino va etajlar", self)
@@ -368,6 +419,7 @@ class MainWindow(QMainWindow):
         self.stats = QLabel()
         self.stats.setWordWrap(True)
         self.stats.setTextFormat(Qt.RichText)
+        self.stats.linkActivated.connect(lambda _: self.open_review())
         lay.addWidget(self.stats)
         lay.addStretch()
         dock.setWidget(w)
@@ -445,8 +497,9 @@ class MainWindow(QMainWindow):
             extra = f" <span style='color:#c62828'>(+{need[t.code]} kerak)</span>" if need.get(t.code) else ""
             lines.append(f"<span style='color:{t.color}'>■</span> {t.name}: <b>{counts.get(t.code, 0)}</b>{extra}")
         if counts.get("?"):
-            lines.append(f"<span style='color:#c62828'>⚠ Tasdiqlanmagan: <b>{counts['?']}</b> "
-                         f"(N - keyingisi, 1-6 - turi)</span>")
+            key = display(registry().key("review.open"))
+            lines.append(f"<span style='color:#c62828'>⚠ Tasdiqlanmagan: <b>{counts['?']}</b></span> "
+                         f"<a href='review'>Tasdiqlash{f' ({key})' if key else ''}</a>")
         rooms = {}
         for r in f.rooms:
             rooms[r.kind] = rooms.get(r.kind, 0) + 1
@@ -537,8 +590,9 @@ class MainWindow(QMainWindow):
             self.props.setCurrentIndex(2)
         elif sel:
             self.p_multi.setText(f"Tanlangan: {len(rooms)} ta xona, {len(eqs)} ta belgi.\n\n"
-                                 "1-6 tugmalari - belgilar turini o'zgartirish.\n"
-                                 "Ctrl+M - xonalarni birlashtirish.\nDel - o'chirish.")
+                                 "Jihoz tugmalari - belgilar turini o'zgartirish.\n"
+                                 f"{display(registry().key('edit.merge'))} - xonalarni birlashtirish.\n"
+                                 f"{display(registry().key('edit.delete'))} - o'chirish.")
             self.props.setCurrentIndex(3)
         else:
             if self.floor is not None:
@@ -630,21 +684,34 @@ class MainWindow(QMainWindow):
         self.scene.changed_model.emit()
 
     def on_digit(self, key: str) -> bool:
-        """1-6: tanlangan belgilar turini o'rnatish yoki shu turdagi belgini qo'yish asbobi."""
+        """Standart tugma bo'yicha (1-6) - eski usul, testlar va moslik uchun."""
         t = BY_KEY.get(key)
         if t is None:
             return False
+        self.on_equip_key(t.code)
+        return True
+
+    def on_equip_key(self, code: str) -> None:
+        """Jihoz tugmasi: tanlangan belgilar turini o'rnatish yoki shu turdagi belgini qo'yish asbobi."""
         eqs = self.scene.selected_equipment()
         if eqs:
             was_unknown = len(eqs) == 1 and eqs[0].eq.code == "?"
             for it in eqs:
-                it.set_code(t.code)
+                it.set_code(code)
             self.scene.changed_model.emit()
             if was_unknown:
                 self.select_next_unknown()
         else:
-            self.select_tool(EQUIP, t.code)
-        return True
+            self.select_tool(EQUIP, code)
+
+    def open_review(self):
+        """Tasdiqlash ekrani: har bir \"?\" belgini rasmdagi joyi bilan ko'rsatib, turini so'raydi."""
+        if self.floor is None or not any(e.code == "?" for e in self.floor.equipment):
+            self.statusBar().showMessage("Tasdiqlanmagan belgi yo'q ✓", 4000)
+            return
+        ReviewDialog(self).exec()
+        self.refresh_stats()
+        self.refresh_floor_list()
 
     def select_next_unknown(self):
         items = [i for i in self.scene.equipment_items() if i.eq.code == "?"]
@@ -657,7 +724,7 @@ class MainWindow(QMainWindow):
         self.scene.clearSelection()
         items[0].setSelected(True)
         self.view.centerOn(items[0])
-        self.statusBar().showMessage(f"Tasdiqlanmagan belgi ({len(items)} ta qoldi): turini 1-6 bilan tanlang, "
+        self.statusBar().showMessage(f"Tasdiqlanmagan belgi ({len(items)} ta qoldi): turini jihoz tugmasi bilan tanlang, "
                                      "noto'g'ri bo'lsa Del.")
 
     def toggle_ortho(self):
@@ -792,7 +859,7 @@ class MainWindow(QMainWindow):
         self.set_dirty()
         self.statusBar().showMessage(msg, 10000)
         if any(e.code == "?" for e in floor.equipment):
-            QTimer.singleShot(300, self.select_next_unknown)
+            QTimer.singleShot(300, self.open_review)
         return True
 
     def apply_detection(self, floor: Floor, img, params: DetectParams, keep_eq: bool,
@@ -1050,37 +1117,53 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(msg, 10000)
 
     def show_help(self):
-        keys = "<br>".join(f"<b>{t.key}</b> — {t.label} {t.name}" for t in EQUIPMENT_TYPES)
+        reg = registry()
+
+        def k(sid):
+            return f"<b>{display(reg.key(sid)) or '—'}</b>"
+
+        keys = "<br>".join(f"{k('equip.' + t.code)} — {t.label} {t.name}" for t in EQUIPMENT_TYPES)
+        eq = {t.code: display(reg.key("equip." + t.code)) for t in EQUIPMENT_TYPES}
         QMessageBox.information(self, "Qo'llanma", f"""
 <h3>Ish tartibi</h3>
 <ol>
-<li><b>Ctrl+I</b> — kadastr rasmini yuklang (skaner yoki telefon rasmi).
+<li>{k('floor.import')} — kadastr rasmini yuklang (skaner yoki telefon rasmi).
 Telefon rasmi bo'lsa, qizil nuqtalarni qog'oz burchaklariga moslang.</li>
 <li>Dastur xonalar, koridorlar va <b>ko'k ruchka</b> belgilarini taxminiy topadi.
-Topilgan belgilar <b>?</b> bo'lib turadi.</li>
-<li><b>N</b> — keyingi '?' belgiga o'tish, <b>1-6</b> — turini berish, <b>Del</b> — noto'g'ri bo'lsa o'chirish.
+Topilgan belgilar <b>?</b> bo'lib turadi va <b>tasdiqlash ekrani</b> ochiladi ({k('review.open')}):
+har bir belgining asl rasmi ko'rsatiladi, turini bitta tugma bilan bering, {k('edit.delete')} — belgi emas,
+{k('review.next')} — keyinroq.
 Qora ruchkadagi belgilarni asboblar panelidan qo'lda qo'ying.</li>
 <li>Xonalarni tuzating: burchaklarni sudrang, qirrani ikki marta bosib burchak qo'shing,
-<b>B</b> — xonani bo'lish, <b>Ctrl+M</b> — birlashtirish, o'ng tugma — turi (koridor, zinapoya...).</li>
+{k('tool.split')} — xonani bo'lish, {k('edit.merge')} — birlashtirish, o'ng tugma — turi (koridor, zinapoya...).</li>
 <li><b>Etaj → Masshtabni belgilash</b> — uzunligi ma'lum devorni belgilang (maydonlar m² da chiqadi).</li>
 <li><b>Fayl → Eksport</b> — PNG/JPG, SVG, PDF yoki DXF.</li>
 </ol>
 <h3>Tugmalar</h3>
+<i>Barcha tugmalarni o'zgartirish: Yordam → Klaviatura tugmalari ({k('app.shortcuts')})</i><br>
 {keys}<br>
-<i>Qog'ozda: Kam / X → 3 (Kamera), A.S → 5 (Switch), t → 6 (Tochka), K.S → ikkita belgi (3 va 5)</i><br>
-<b>V</b> — tanlash, <b>P</b> — xona (burchaklar), <b>R</b> — to'rtburchak xona, <b>B</b> — bo'lish<br>
-<b>L</b> — devor (burchaklarni bosing, Enter — tugatish). Qalinlik: o'ngdagi panelda yoki <b>Alt+↑ / Alt+↓</b>,
-<b>D</b> — eshik (devorga bosing; o'ng tugma: bir/ikki tabaqali, ochilish tomoni, kengligi),
-<b>Z</b> — zina (maydonini torting)<br>
-<b>]</b> / <b>[</b> — tanlanganni joyida 90° o'ngga / chapga aylantirish, <b>Ctrl+Shift+R</b> — istalgan burchak<br>
-<b>F8</b> — orto rejim, <b>Shift</b> — orto rejimni vaqtincha teskarisiga<br>
-<b>G'ildirak</b> — kattalashtirish, <b>o'rta tugma / Probel+sudrash</b> — surish, <b>Ctrl+0</b> — butun chizma<br>
-<b>Ctrl+Z / Ctrl+Y</b> — bekor qilish / qaytarish, <b>Esc</b> — chizishni bekor qilish
+<i>Qog'ozda: Kam / X → {eq['K']} (Kamera), A.S → {eq['S']} (Switch), t → {eq['T']} (Tochka),
+K.S → ikkita belgi ({eq['K']} va {eq['S']})</i><br>
+{k('tool.select')} — tanlash, {k('tool.room_poly')} — xona (burchaklar), {k('tool.room_rect')} — to'rtburchak xona,
+{k('tool.split')} — bo'lish<br>
+{k('tool.wall')} — devor (burchaklarni bosing, Enter — tugatish). Qalinlik: o'ngdagi panelda yoki
+{k('wall.thicker')} / {k('wall.thinner')},
+{k('tool.door')} — eshik (devorga bosing; o'ng tugma: bir/ikki tabaqali, ochilish tomoni, kengligi),
+{k('tool.stairs')} — zina (maydonini torting)<br>
+{k('rotate.cw')} / {k('rotate.ccw')} — tanlanganni joyida 90° o'ngga / chapga aylantirish,
+{k('rotate.custom')} — istalgan burchak<br>
+{k('view.ortho')} — orto rejim, <b>Shift</b> — orto rejimni vaqtincha teskarisiga<br>
+<b>G'ildirak</b> — kattalashtirish, <b>o'rta tugma / Probel+sudrash</b> — surish, {k('view.fit')} — butun chizma<br>
+{k('edit.undo')} / {k('edit.redo')} — bekor qilish / qaytarish, <b>Esc</b> — chizishni bekor qilish
 """)
 
     def closeEvent(self, event):
         if self.maybe_save():
             self.updater.shutdown()
+            try:
+                registry().listeners.remove(self._on_shortcut_changed)
+            except ValueError:
+                pass
             event.accept()
         else:
             event.ignore()

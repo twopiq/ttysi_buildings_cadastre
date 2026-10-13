@@ -758,7 +758,6 @@ class FloorView(QGraphicsView):
         self._panning = False
         self._pan_last = None
         self._space = False
-        self.digit_pressed = None   # oyna tomonidan beriladi: f(key) -> bool
         self.place_planned = False  # yangi qo'yiladigan jihozlar "kerak" holatida bo'lsinmi
 
     # --- asbob
@@ -935,9 +934,6 @@ class FloorView(QGraphicsView):
             self._space = True
             self.viewport().setCursor(Qt.OpenHandCursor)
             return
-        if event.text() and event.text() in "123456" and not event.modifiers() & ~Qt.KeypadModifier:
-            if self.digit_pressed and self.digit_pressed(event.text()):
-                return
         if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.tool in (ROOM_POLY, WALL):
             self.finish_polygon()
             return

@@ -45,8 +45,17 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
 2. **Avtomatik chizish.** Dastur devorlarni topib, xonalar va koridorlarni ko'pburchak qilib chizadi
    va **raqamlaydi** (keyin qo'lda tuzatiladi). **Ko'k ruchka** izlarini esa `?` belgisi bilan AT
    nomzodi sifatida belgilaydi.
-3. **Belgilarni tasdiqlash.** `N` tugmasi keyingi `?` belgiga o'tkazadi, `1`–`6` turini beradi, `Del`
-   noto'g'ri belgini o'chiradi. Qora ruchkadagi belgilarni chap paneldan qo'lda qo'yasiz.
+3. **Belgilarni tasdiqlash ekrani.** Etaj qo'shilgach, `?` belgilar bo'lsa, tasdiqlash ekrani o'zi
+   ochiladi (keyin ham: **Tahrirlash → Belgilarni tasdiqlash**, `Ctrl+T`, yoki o'ng paneldagi
+   "Tasdiqlash" havolasi). Har bir belgi uchun kadastr rasmining kattalashtirilgan bo'lagi ko'rsatiladi
+   (belgi qizil punktir doira ichida) va qaysi xonada ekani yoziladi:
+   - `1`–`6` yoki katta tugmalar — jihoz turi (keyingi belgiga o'zi o'tadi);
+   - `Q` — holat: mavjud / kerak (rejada);
+   - `Del` — "belgi emas" (o'chiriladi), `N` — o'tkazib yuborish (navbat oxiriga);
+   - pastda navbatdagi belgilar ko'rinadi, yuqorida — nechtasi qolgani.
+
+   Hamma o'zgarishlar `Ctrl+Z` bilan bekor qilinadi. Qora ruchkadagi belgilarni chap paneldan qo'lda
+   qo'yasiz.
 4. **Tuzatish:**
    - burchaklarni sudrash;
    - qirrani ikki marta bosib yangi burchak qo'shish;
@@ -79,9 +88,15 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
    paneli. Asboblar panelidagi **"Kerak (reja)"** (`Q`) yoqilsa, yangi qo'yilgan jihozlar darhol
    "kerak" bo'ladi. Masalan: kompyuter xonasida internet yo'q bo'lsa, xona turini "Kompyuter xona"
    qilasiz va unga "kerak" holatidagi Switch qo'yasiz.
-6. **Masshtab (Etaj menyusi).** Uzunligi ma'lum devorni belgilasangiz, maydonlar m² da chiqadi va DXF
+6. **Klaviatura tugmalari (Yordam → Klaviatura tugmalari, `Ctrl+,`).** Har bir amalning tugmasini
+   o'zingizga qulay qilib almashtirasiz: maydonni bosib, yangi tugmani bosing. Bir xil tugma ikki
+   amalga berilsa, ikkalasi qizil bilan ko'rsatiladi va saqlab bo'lmaydi. "Standart" tugmasi bitta
+   amalni, "Hammasini standartga qaytarish" esa barchasini asl holiga qaytaradi. O'zgartirilgan
+   tugmalar menyularda, maslahatlarda, qo'llanmada va tasdiqlash ekranida darhol yangilanadi va
+   kompyuterda saqlanib qoladi. Bu yerda yozilgan tugmalar — standart qiymatlar.
+7. **Masshtab (Etaj menyusi).** Uzunligi ma'lum devorni belgilasangiz, maydonlar m² da chiqadi va DXF
    metrlarda saqlanadi.
-7. **Fayl → Eksport:**
+8. **Fayl → Eksport:**
    - PNG / JPG va SVG;
    - PDF (joriy etaj yoki barcha etajlar);
    - DXF (AutoCAD; qatlamlar `XONA_*` va `AT_*`, jihozlar bloklar sifatida);

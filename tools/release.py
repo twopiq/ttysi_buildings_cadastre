@@ -50,7 +50,8 @@ def build_app_zip(dest: str) -> None:
         for folder, dirs, files in os.walk(PKG):
             dirs[:] = [d for d in dirs if d != "__pycache__"]
             for fn in sorted(files):
-                if fn.endswith(".py"):
+                # kod va unga kerakli fayllar (shriftlar, litsenziya) - zip ichidan o'qiladi
+                if fn.endswith((".py", ".woff", ".txt")):
                     full = os.path.join(folder, fn)
                     z.write(full, os.path.relpath(full, ROOT).replace(os.sep, "/"))
 

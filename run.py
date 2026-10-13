@@ -92,7 +92,9 @@ def _self_test(out_path):
     import ttysi_cadastre
     from PySide6.QtWidgets import QApplication
     from ttysi_cadastre.ui.main_window import MainWindow
+    from ttysi_cadastre.ui import theme
     app = QApplication([])
+    theme.apply(app)
     w = MainWindow()
     w.dirty = False
     w.close()
