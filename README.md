@@ -54,6 +54,10 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
    - `Ctrl+M` — xonalarni birlashtirish;
    - `P` / `R` — yangi xona chizish;
    - o'ng tugma — xona turini tanlash (xona, koridor, kompyuter xona, zinapoya, hojatxona);
+   - `L` — **devor**: xona chegarasidan tashqari alohida devor yoki to'siq. Burchaklarni ketma-ket
+     bosasiz, `Enter` yoki ikki marta bosish bilan tugatasiz. Qalinligi 0.12–0.64 m (o'ng tugma).
+     Burchaklari sudraladi, qirraga ikki marta bosib yangi burchak qo'shiladi. Eshik bu devorga
+     ham yopishadi;
    - `D` — **eshik**: devorga bosasiz va u eng yaqin devorga yopishadi. Sudrab boshqa devorga
      ko'chirish mumkin. O'ng tugma menyusida: bir yoki ikki tabaqali, ochilish tomoni, sharnir tomoni,
      kengligi (0.8–1.8 m);
@@ -80,7 +84,8 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
      kesimida mavjud jihozlar soni, har bir xonadagi jihozlar, jihozlarning to'liq ro'yxati va
      **"Kerak (reja)"** varag'i: qaysi bino, etaj va xonaga nima o'rnatish kerakligi.
    - DXF'da rejadagi jihozlar alohida `AT_<kod>_KERAK` qatlamida, punktir chiziq bilan chiqadi.
-     Eshiklar `ESHIKLAR`, zina pog'onalari esa `ZINALAR` qatlamida bo'ladi.
+     Eshiklar `ESHIKLAR`, zina pog'onalari `ZINALAR`, alohida devorlar esa `DEVORLAR` qatlamida
+     (haqiqiy qalinlikda) bo'ladi.
 
 Loyiha bitta `.ttysi` faylda saqlanadi: bino, barcha etajlar va kadastr rasmlari shu faylning ichida bo'ladi.
 

@@ -127,22 +127,30 @@ def _stair_lines_axis(poly: Polygon, step: float) -> list[list[tuple[float, floa
     return out
 
 
-def nearest_wall(rooms, x: float, y: float):
-    """Nuqtaga eng yaqin devor (xona qirrasi): (nuqta x, nuqta y, burchak gradusda, masofa)."""
-    best = None
+def wall_segments(rooms, walls=()):
+    """Barcha devor kesmalari: xona qirralari (yopiq) va mustaqil devorlar (ochiq siniq chiziq)."""
     for room in rooms:
         pts = room.points
         for i in range(len(pts)):
-            (ax, ay), (bx, by) = pts[i], pts[(i + 1) % len(pts)]
-            dx, dy = bx - ax, by - ay
-            L2 = dx * dx + dy * dy
-            if L2 < 1e-9:
-                continue
-            t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
-            px, py = ax + t * dx, ay + t * dy
-            d = math.hypot(x - px, y - py)
-            if best is None or d < best[3]:
-                best = (px, py, math.degrees(math.atan2(dy, dx)), d)
+            yield pts[i], pts[(i + 1) % len(pts)], None
+    for w in walls:
+        for a, b in zip(w.points, w.points[1:]):
+            yield a, b, w
+
+
+def nearest_wall(rooms, x: float, y: float, walls=()):
+    """Nuqtaga eng yaqin devor: (nuqta x, nuqta y, burchak gradusda, masofa, mustaqil devor yoki None)."""
+    best = None
+    for (ax, ay), (bx, by), owner in wall_segments(rooms, walls):
+        dx, dy = bx - ax, by - ay
+        L2 = dx * dx + dy * dy
+        if L2 < 1e-9:
+            continue
+        t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+        px, py = ax + t * dx, ay + t * dy
+        d = math.hypot(x - px, y - py)
+        if best is None or d < best[3]:
+            best = (px, py, math.degrees(math.atan2(dy, dx)), d, owner)
     return best
 
 

@@ -79,6 +79,14 @@ class Equipment:
 
 
 @dataclass
+class Wall:
+    """Mustaqil devor (xona chegarasidan tashqari): siniq chiziq va qalinlik (piksel)."""
+    points: list[tuple[float, float]]
+    thickness: float = 10.0
+    id: str = field(default_factory=new_id)
+
+
+@dataclass
 class Door:
     """Eshik: devor o'qidagi markazi, devor yo'nalishi (gradus) va kengligi (piksel)."""
     x: float
@@ -100,6 +108,7 @@ class Floor:
     rooms: list[Room] = field(default_factory=list)
     equipment: list[Equipment] = field(default_factory=list)
     doors: list[Door] = field(default_factory=list)
+    walls: list[Wall] = field(default_factory=list)
     scale_m_per_px: float | None = None   # masshtab (1 piksel necha metr)
     id: str = field(default_factory=new_id)
 
@@ -118,6 +127,7 @@ class Floor:
             "rooms": [asdict(r) for r in self.rooms],
             "equipment": [asdict(e) for e in self.equipment],
             "doors": [asdict(d) for d in self.doors],
+            "walls": [asdict(w) for w in self.walls],
         }
 
     def content_dict(self) -> dict:
@@ -141,6 +151,9 @@ class Floor:
                            leaves=o.get("leaves", 1), flip=o.get("flip", False), mirror=o.get("mirror", False),
                            id=o.get("id") or new_id())
                       for o in d.get("doors", [])]
+        self.walls = [Wall(points=[tuple(p) for p in o["points"]], thickness=o.get("thickness", 10.0),
+                           id=o.get("id") or new_id())
+                      for o in d.get("walls", [])]
 
     @classmethod
     def from_dict(cls, d: dict, image: bytes | None) -> "Floor":

@@ -329,3 +329,64 @@ def test_rotate_in_place(qapp, monkeypatch):
     assert not w.scene.rotate_selected(90.0)
     w.dirty = False
     w.close()
+
+
+def test_walls(qapp, tmp_path):
+    """Mustaqil devor: asbob bilan chizish, eshik yopishishi, aylantirish, saqlash, DXF."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtTest import QTest
+    from ttysi_cadastre.export import export_dxf, export_image
+    from ttysi_cadastre.render import RenderOptions, door_wall_thickness
+    from ttysi_cadastre.ui import canvas
+    from ttysi_cadastre.ui.main_window import MainWindow
+    b, f = _sample()                                     # 1 m = 50 px
+    w = MainWindow()
+    w.resize(1200, 800)
+    w.show()
+    w.building = b
+    w.refresh_all()
+    qapp.processEvents()
+    w.view.zoom_fit()
+    qapp.processEvents()
+
+    # asbob bilan: 3 nuqta + Enter -> siniq devor (orto rejimda)
+    w.select_tool(canvas.WALL)
+    vp = w.view.viewport()
+    for x, y in [(150, 500), (450, 503), (450, 650)]:
+        QTest.mouseClick(vp, Qt.LeftButton, Qt.NoModifier, w.view.mapFromScene(QPointF(x, y)))
+    QTest.keyClick(w.view, Qt.Key_Return)
+    assert len(f.walls) == 1
+    wall = f.walls[0]
+    assert len(wall.points) == 3
+    (x0, y0), (x1, y1), (x2, y2) = wall.points
+    assert abs(y1 - y0) < 1e-6 and abs(x2 - x1) < 1e-6          # orto: gorizontal, keyin vertikal
+    assert wall.thickness == pytest.approx(0.25 / f.scale_m_per_px)
+
+    # eshik mustaqil devorga yopishadi va uning qalinligini oladi
+    wall.thickness = 0.5 / f.scale_m_per_px
+    door = w.scene.add_door(QPointF(300, y0 + 6)).door
+    assert abs(door.y - y0) < 1e-6 and abs(door.angle) < 1e-6
+    assert door_wall_thickness(f, door) == pytest.approx(wall.thickness)
+
+    # aylantirish va bekor qilish
+    w.select_tool(canvas.SELECT)
+    w.scene.clearSelection()
+    item = next(i for i in w.scene.items() if isinstance(i, canvas.WallItem))
+    item.setSelected(True)
+    before = list(f.walls[0].points)
+    w.rotate_selected(90.0)
+    assert f.walls[0].points != before
+    w.undo()
+    assert f.walls[0].points == pytest.approx(before)
+
+    # saqlash, chizish, DXF
+    p = str(tmp_path / "d.ttysi")
+    b.save(p)
+    assert len(Building.load(p).floors[0].walls[0].points) == 3
+    export_image(str(tmp_path / "d.png"), b, f, RenderOptions(), 1000)
+    dx = str(tmp_path / "d.dxf")
+    export_dxf(dx, b, f)
+    walls = ezdxf.readfile(dx).modelspace().query('LWPOLYLINE[layer=="DEVORLAR"]')
+    assert len(walls) == 1 and walls[0].dxf.const_width == pytest.approx(0.5)
+    w.dirty = False
+    w.close()

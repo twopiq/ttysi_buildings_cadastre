@@ -130,6 +130,10 @@ def export_dxf(path: str, building: Building, floor: Floor) -> None:
     doc.layers.add("ESHIKLAR", color=30)
     doc.layers.add("ZINALAR", color=8)
     ww = wall_width(floor)
+    doc.layers.add("DEVORLAR", color=7)
+    for wall in floor.walls:
+        msp.add_lwpolyline([pt(x, y) for x, y in wall.points],
+                           dxfattribs={"layer": "DEVORLAR", "const_width": wall.thickness * k})
     for door in floor.doors:
         for ln in door_lines(door, ww):
             msp.add_lwpolyline([pt(x, y) for x, y in ln], dxfattribs={"layer": "ESHIKLAR"})

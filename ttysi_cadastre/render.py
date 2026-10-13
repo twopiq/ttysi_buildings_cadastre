@@ -8,7 +8,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF
 
 from .equipment import EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
-from .geometry import door_cut, door_lines, stair_lines
+from .geometry import door_cut, door_lines, nearest_wall, stair_lines
 from .model import Building, Floor
 
 
@@ -78,6 +78,29 @@ def draw_door(p: QPainter, door, wall: float, cut_color: QColor | None = None) -
         p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in ln]))
 
 
+def draw_wall(p: QPainter, wall, color: QColor | None = None) -> None:
+    pen = QPen(color or QColor("#212121"), wall.thickness)
+    pen.setJoinStyle(Qt.MiterJoin)
+    pen.setCapStyle(Qt.SquareCap)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in wall.points]))
+
+
+def draw_walls(p: QPainter, floor: Floor) -> None:
+    for wall in floor.walls:
+        draw_wall(p, wall)
+
+
+def door_wall_thickness(floor: Floor, door) -> float:
+    """Eshik turgan devor qalinligi: mustaqil devorda - o'sha devorniki, aks holda xona devori."""
+    ww = wall_width(floor)
+    snap = nearest_wall(floor.rooms, door.x, door.y, floor.walls)
+    if snap and snap[4] is not None and snap[3] < 1.0:
+        return max(ww, snap[4].thickness)
+    return ww
+
+
 def draw_stairs(p: QPainter, room, floor: Floor) -> None:
     """Zina: pog'onalar (0.3 m) va yo'nalish strelkasi."""
     p.setPen(QPen(QColor("#616161"), max(1.0, wall_width(floor) * 0.18)))
@@ -108,8 +131,9 @@ def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImag
     p.setBrush(Qt.NoBrush)
     for room in floor.rooms:
         p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in room.points]))
+    draw_walls(p, floor)
     for door in floor.doors:
-        draw_door(p, door, ww)
+        draw_door(p, door, door_wall_thickness(floor, door))
     if opts.room_names:
         f = QFont("Arial")
         f.setPixelSize(label_px(floor))

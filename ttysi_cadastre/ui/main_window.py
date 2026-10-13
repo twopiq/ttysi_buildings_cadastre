@@ -22,7 +22,7 @@ from ..model import Building, Equipment, Floor, Room
 from ..render import RenderOptions, draw_equipment_symbol, equipment_counts, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
-from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, EquipmentItem,
+from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, WALL, EquipmentItem,
                      FloorScene, FloorView, RoomItem)
 from .import_dialog import ImportDialog, PdfPageDialog, RedetectDialog, image_paper_mm_per_px
 from .update_dialog import Updater, UpdateSettingsDialog, load_settings
@@ -218,6 +218,7 @@ class MainWindow(QMainWindow):
         tool("Tanlash", "V", SELECT)
         tool("Xona\n(burchak)", "P", ROOM_POLY, tip="Xona/koridorni burchaklari bo'yicha chizish")
         tool("Xona\n(to'rtburchak)", "R", ROOM_RECT)
+        tool("Devor", "L", WALL, tip="Mustaqil devor chizish: burchaklarni bosing, Enter - tugatish")
         tool("Xonani\nbo'lish", "B", SPLIT)
         tool("Eshik", "D", DOOR, tip="Eshik qo'yish: devorga bosing")
         tool("Zina", "Z", STAIRS, tip="Zinapoya chizish: maydonini torting")
@@ -419,6 +420,8 @@ class MainWindow(QMainWindow):
             rooms[r.kind] = rooms.get(r.kind, 0) + 1
         lines.append("")
         lines += [f"{ROOM_KINDS[k][0]}: <b>{n}</b>" for k, n in rooms.items()]
+        if f.walls:
+            lines.append(f"Alohida devorlar: <b>{len(f.walls)}</b>")
         if f.doors:
             lines.append(f"Eshiklar: <b>{len(f.doors)}</b>")
         if f.scale_m_per_px:
@@ -527,7 +530,7 @@ class MainWindow(QMainWindow):
 
     def rotate_selected(self, angle):
         if not self.scene.rotate_selected(angle):
-            self.statusBar().showMessage("Aylantirish uchun xona, zina yoki eshikni tanlang.", 4000)
+            self.statusBar().showMessage("Aylantirish uchun xona, devor, zina yoki eshikni tanlang.", 4000)
 
     def toggle_status(self):
         eqs = self.scene.selected_equipment()
@@ -979,6 +982,7 @@ Qora ruchkadagi belgilarni asboblar panelidan qo'lda qo'ying.</li>
 {keys}<br>
 <i>Qog'ozda: Kam / X → 3 (Kamera), A.S → 5 (Switch), t → 6 (Tochka), K.S → ikkita belgi (3 va 5)</i><br>
 <b>V</b> — tanlash, <b>P</b> — xona (burchaklar), <b>R</b> — to'rtburchak xona, <b>B</b> — bo'lish<br>
+<b>L</b> — devor (burchaklarni bosing, Enter — tugatish; o'ng tugma: qalinligi 0.12–0.64 m),
 <b>D</b> — eshik (devorga bosing; o'ng tugma: bir/ikki tabaqali, ochilish tomoni, kengligi),
 <b>Z</b> — zina (maydonini torting)<br>
 <b>]</b> / <b>[</b> — tanlanganni joyida 90° o'ngga / chapga aylantirish, <b>Ctrl+Shift+R</b> — istalgan burchak<br>
