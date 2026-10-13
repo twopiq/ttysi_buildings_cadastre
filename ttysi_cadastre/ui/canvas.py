@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QGraphicsItem,
 
 from ..equipment import ROOM_KINDS, get_type
 from ..model import Equipment, Floor, Room
-from ..render import draw_equipment_symbol, room_label, symbol_radius, wall_width
+from ..render import draw_equipment_symbol, label_px, room_label, symbol_radius, wall_width
 
 # Asboblar
 SELECT, ROOM_POLY, ROOM_RECT, EQUIP, SPLIT, SCALE, PAN = (
@@ -72,7 +72,7 @@ class RoomItem(QGraphicsPolygonItem):
                       | QGraphicsItem.ItemSendsGeometryChanges)
         self.label = QGraphicsSimpleTextItem(self)
         f = QFont("Arial")
-        f.setPixelSize(max(1, int(max(floor.width, floor.height) * 0.015)))
+        f.setPixelSize(label_px(floor))
         self.label.setFont(f)
         self.label.setBrush(QColor("#424242"))
         self.label.setAcceptedMouseButtons(Qt.NoButton)

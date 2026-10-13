@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import QPointF, QSettings, Qt, QTimer
+from PySide6.QtPdf import QPdfDocument
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QImage, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QDockWidget, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
@@ -16,15 +17,16 @@ from .. import __version__
 from ..detection import DetectParams, decode_image, detect, encode_jpg, limit_size, read_image
 from ..equipment import BY_KEY, EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN
 from ..export import export_dxf, export_image, export_pdf, export_svg
+from ..report import export_excel
 from ..geometry import merge_rooms, split_room
 from ..model import Building, Equipment, Floor, Room
 from ..render import RenderOptions, draw_equipment_symbol, equipment_counts, wall_width
 from .canvas import (EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, EquipmentItem, FloorScene,
                      FloorView, RoomItem)
-from .import_dialog import ImportDialog, RedetectDialog
+from .import_dialog import ImportDialog, PdfPageDialog, RedetectDialog, image_paper_mm_per_px
 
 FILE_FILTER = "TTYSI kadastr loyihasi (*.ttysi)"
-IMAGE_FILTER = "Rasmlar (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
+IMAGE_FILTER = "Kadastr hujjati (*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
 
 
 def type_icon(code: str) -> QIcon:
@@ -140,6 +142,9 @@ class MainWindow(QMainWindow):
         self._act(ex, "PDF - joriy etaj...", lambda: self.export("pdf"))
         self._act(ex, "PDF - barcha etajlar...", lambda: self.export("pdf_all"))
         self._act(ex, "AutoCAD chizma (DXF)...", lambda: self.export("dxf"))
+        ex.addSeparator()
+        self._act(ex, "Excel hisobot - joriy bino...", self.export_excel_current, QKeySequence("Ctrl+R"))
+        self._act(ex, "Excel hisobot - bir nechta bino...", self.export_excel_many)
         m.addSeparator()
         self._act(m, "Chiqish", self.close, QKeySequence.Quit)
 
@@ -154,10 +159,11 @@ class MainWindow(QMainWindow):
         self._act(m, "Keyingi tasdiqlanmagan belgi", self.select_next_unknown, QKeySequence("N"))
 
         m = mb.addMenu("&Etaj")
-        self._act(m, "Rasmdan yangi etaj qo'shish...", self.add_floor_from_image, QKeySequence("Ctrl+I"))
+        self._act(m, "PDF / rasmdan yangi etaj qo'shish...", self.add_floor_from_image, QKeySequence("Ctrl+I"))
         self._act(m, "Bo'sh etaj qo'shish", self.add_empty_floor)
         self._act(m, "Qayta avtomatik chizish...", self.redetect)
         self._act(m, "Masshtabni belgilash", lambda: self.select_tool(SCALE))
+        self._act(m, "Xonalarni qayta raqamlash...", self.renumber_rooms)
         self._act(m, "Etaj nomini o'zgartirish...", self.rename_floor, QKeySequence("F2"))
         self._act(m, "Etajni o'chirish", self.delete_floor)
 
@@ -228,7 +234,7 @@ class MainWindow(QMainWindow):
         self.floor_list = QListWidget()
         self.floor_list.currentRowChanged.connect(self.on_floor_selected)
         lay.addWidget(self.floor_list, 1)
-        b = QPushButton("+ Rasmdan etaj qo'shish")
+        b = QPushButton("+ PDF / rasmdan etaj qo'shish")
         b.clicked.connect(self.add_floor_from_image)
         lay.addWidget(b)
         row = QHBoxLayout()
@@ -368,7 +374,7 @@ class MainWindow(QMainWindow):
     def refresh_stats(self):
         f = self.floor
         if f is None:
-            self.stats.setText("Etaj yo'q. Chapdagi \"+ Rasmdan etaj qo'shish\" tugmasini bosing.")
+            self.stats.setText("Etaj yo'q. Chapdagi \"+ PDF / rasmdan etaj qo'shish\" tugmasini bosing.")
             return
         counts = equipment_counts(f)
         lines = []
@@ -588,27 +594,58 @@ class MainWindow(QMainWindow):
 
     def add_floor_from_image(self):
         last = self.settings.value("last_dir", "")
-        path, _ = QFileDialog.getOpenFileName(self, "Kadastr rasmini tanlang", last, IMAGE_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Kadastr hujjatini tanlang", last, IMAGE_FILTER)
         if not path:
             return
         self.settings.setValue("last_dir", os.path.dirname(path))
+        if path.lower().endswith(".pdf"):
+            self.add_floors_from_pdf(path)
+            return
         try:
             img = read_image(path)
         except Exception as e:
             QMessageBox.critical(self, "Xato", str(e))
             return
-        dlg = ImportDialog(img, self.next_floor_name(), self)
-        if dlg.exec() != QDialog.Accepted:
+        self.import_floor(img, image_paper_mm_per_px(path), from_pdf=False)
+
+    def add_floors_from_pdf(self, path: str):
+        """PDF: sahifa tanlanadi, undan etaj kesib olinadi; bir nechta etajni ketma-ket qo'shish mumkin."""
+        doc = QPdfDocument(self)
+        if doc.load(path) != QPdfDocument.Error.None_ or doc.pageCount() == 0:
+            QMessageBox.critical(self, "Xato", "PDF faylni ochib bo'lmadi.")
             return
+        page = 0
+        while True:
+            pd = PdfPageDialog(doc, self, current=page)
+            if pd.exec() != QDialog.Accepted:
+                break
+            page = pd.page()
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                img, mm_per_px = pd.render()
+            finally:
+                QApplication.restoreOverrideCursor()
+            self.import_floor(img, mm_per_px, from_pdf=True)
+        doc.close()
+
+    def import_floor(self, img, paper_mm_per_px, from_pdf: bool) -> bool:
+        dlg = ImportDialog(img, self.next_floor_name(), self, paper_mm_per_px=paper_mm_per_px, from_pdf=from_pdf)
+        if dlg.exec() != QDialog.Accepted:
+            return False
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            corrected = limit_size(dlg.result_image())
+            cropped = dlg.result_image()
+            mpp = dlg.m_per_px()
+            corrected = limit_size(cropped)
+            if mpp:
+                mpp *= cropped.shape[1] / corrected.shape[1]
             h, w = corrected.shape[:2]
             floor = Floor(name=dlg.name.text().strip() or self.next_floor_name(),
-                          image=encode_jpg(corrected), width=w, height=h)
+                          image=encode_jpg(corrected), width=w, height=h, scale_m_per_px=mpp)
             msg = "Etaj qo'shildi."
             if dlg.auto.isChecked():
-                msg = self.apply_detection(floor, corrected, dlg.params_w.params(), keep_eq=False)
+                msg = self.apply_detection(floor, corrected, dlg.params_w.params(mpp), keep_eq=False,
+                                           numbering=dlg.params_w.numbering.isChecked())
         finally:
             QApplication.restoreOverrideCursor()
         self.building.floors.append(floor)
@@ -617,10 +654,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(msg, 10000)
         if any(e.code == "?" for e in floor.equipment):
             QTimer.singleShot(300, self.select_next_unknown)
+        return True
 
-    def apply_detection(self, floor: Floor, img, params: DetectParams, keep_eq: bool) -> str:
+    def apply_detection(self, floor: Floor, img, params: DetectParams, keep_eq: bool,
+                        numbering: bool = True) -> str:
         res = detect(img, params)
-        floor.rooms = [Room(points=r.points, kind=r.kind) for r in res.rooms]
+        floor.rooms = [Room(points=r.points, kind=r.kind, name=str(i) if numbering else "")
+                       for i, r in enumerate(res.rooms, 1)]
         kept = [e for e in floor.equipment if e.code != "?"] if keep_eq else []
         floor.equipment = kept + [Equipment(code="?", x=x, y=y) for x, y in res.marks]
         return (f"Topildi: {len(res.rooms)} ta xona/koridor, {len(res.marks)} ta belgi nomzodi. "
@@ -630,13 +670,17 @@ class MainWindow(QMainWindow):
         if self.floor is None or not self.floor.image:
             QMessageBox.information(self, "Qayta chizish", "Bu etajda kadastr rasmi yo'q.")
             return
-        dlg = RedetectDialog(self)
+        mpp = self.floor.scale_m_per_px
+        dlg = RedetectDialog(self, metric=mpp is not None)
         if dlg.exec() != QDialog.Accepted:
             return
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             img = decode_image(self.floor.image)
-            msg = self.apply_detection(self.floor, img, dlg.params_w.params(), dlg.keep_eq.isChecked())
+            if img.shape[1] != self.floor.width and mpp:
+                mpp *= self.floor.width / img.shape[1]
+            msg = self.apply_detection(self.floor, img, dlg.params_w.params(mpp), dlg.keep_eq.isChecked(),
+                                       numbering=dlg.params_w.numbering.isChecked())
         finally:
             QApplication.restoreOverrideCursor()
         self.histories[self.floor.id].push(self.floor)
@@ -644,6 +688,66 @@ class MainWindow(QMainWindow):
         self.refresh_floor_list()
         self.set_dirty()
         self.statusBar().showMessage(msg, 10000)
+
+    def renumber_rooms(self):
+        """Xonalarni chapdan o'ngga, yuqoridan pastga qayta raqamlash."""
+        if self.floor is None or not self.floor.rooms:
+            return
+        start, ok = QInputDialog.getInt(self, "Xonalarni raqamlash", "Birinchi raqam:", 1, 0, 100000)
+        if not ok:
+            return
+        row_h = max(self.floor.width, self.floor.height) * 0.05
+        order = sorted(self.floor.rooms, key=lambda r: (round(min(q[1] for q in r.points) / row_h),
+                                                         min(q[0] for q in r.points)))
+        for i, r in enumerate(order, start):
+            r.name = str(i)
+        self.histories[self.floor.id].push(self.floor)
+        self.show_floor(self.floor, keep_view=True)
+        self.set_dirty()
+
+    def export_excel_current(self):
+        if not self.building.floors:
+            QMessageBox.information(self, "Hisobot", "Avval etaj qo'shing.")
+            return
+        base = "".join(c for c in self.building.name if c not in '\\/:*?"<>|')
+        default = os.path.join(self.settings.value("export_dir", self.settings.value("last_dir", "")),
+                               f"{base} - hisobot.xlsx")
+        path, _ = QFileDialog.getSaveFileName(self, "Excel hisobot", default, "Excel (*.xlsx)")
+        if path:
+            self._write_excel(path, [self.building])
+
+    def export_excel_many(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Hisobotga kiradigan loyihalarni tanlang (bir nechta)", self.settings.value("last_dir", ""),
+            FILE_FILTER)
+        if not paths:
+            return
+        buildings = []
+        for p in paths:
+            if self.path and os.path.abspath(p) == os.path.abspath(self.path):
+                buildings.append(self.building)  # saqlanmagan o'zgarishlar ham kirsin
+                continue
+            try:
+                buildings.append(Building.load(p))
+            except Exception as e:
+                QMessageBox.warning(self, "Xato", f"{os.path.basename(p)}: {e}")
+        if not buildings:
+            return
+        default = os.path.join(self.settings.value("export_dir", ""), "Binolar - umumiy hisobot.xlsx")
+        path, _ = QFileDialog.getSaveFileName(self, "Excel hisobot", default, "Excel (*.xlsx)")
+        if path:
+            self._write_excel(path, buildings)
+
+    def _write_excel(self, path: str, buildings):
+        if not path.lower().endswith(".xlsx"):
+            path += ".xlsx"
+        try:
+            export_excel(path, buildings)
+        except Exception as e:
+            QMessageBox.critical(self, "Hisobot xatosi", str(e))
+            return
+        self.settings.setValue("export_dir", os.path.dirname(path))
+        self.statusBar().showMessage(f"Hisobot saqlandi: {path}", 10000)
 
     def add_empty_floor(self):
         self.building.floors.append(Floor(name=self.next_floor_name()))

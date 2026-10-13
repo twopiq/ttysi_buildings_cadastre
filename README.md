@@ -19,10 +19,15 @@ Hamma ish kompyuterning o'zida bajariladi: internet ham, AI xizmati ham kerak em
 
 ## Ish tartibi
 
-1. **Etaj → Rasmdan yangi etaj qo'shish (Ctrl+I).** Rasm telefonda olingan bo'lsa, dastur qog'oz
-   burchaklarini o'zi topadi va perspektivani to'g'rilaydi. Qizil nuqtalarni qo'lda ham surish mumkin.
-2. **Avtomatik chizish.** Dastur devorlarni topib, xonalar va koridorlarni ko'pburchak qilib chizadi.
-   **Ko'k ruchka** izlarini esa `?` belgisi bilan AT nomzodi sifatida belgilaydi.
+1. **Etaj → PDF / rasmdan yangi etaj qo'shish (Ctrl+I).**
+   - **PDF:** sahifani tanlaysiz. Bitta sahifada bir nechta etaj bo'lsa, keraklisini sichqoncha bilan
+     ramkaga olasiz. Shtampdagi **Nisbat**ni (masalan 1:300) kiritsangiz, masshtab avtomatik hisoblanadi
+     va maydonlar m² da chiqadi. Bitta PDF'dan bir nechta etajni ketma-ket qo'shish mumkin.
+   - **Telefon rasmi:** dastur qog'oz burchaklarini o'zi topadi va perspektivani to'g'rilaydi. Qizil
+     nuqtalarni qo'lda ham surish mumkin. Masshtabni keyin "Masshtabni belgilash" orqali berasiz.
+2. **Avtomatik chizish.** Dastur devorlarni topib, xonalar va koridorlarni ko'pburchak qilib chizadi
+   va **raqamlaydi** (keyin qo'lda tuzatiladi). **Ko'k ruchka** izlarini esa `?` belgisi bilan AT
+   nomzodi sifatida belgilaydi.
 3. **Belgilarni tasdiqlash.** `N` tugmasi keyingi `?` belgiga o'tkazadi, `1`–`6` turini beradi, `Del`
    noto'g'ri belgini o'chiradi. Qora ruchkadagi belgilarni chap paneldan qo'lda qo'yasiz.
 4. **Tuzatish:**
@@ -37,7 +42,9 @@ Hamma ish kompyuterning o'zida bajariladi: internet ham, AI xizmati ham kerak em
 6. **Fayl → Eksport:**
    - PNG / JPG va SVG;
    - PDF (joriy etaj yoki barcha etajlar);
-   - DXF (AutoCAD; qatlamlar `XONA_*` va `AT_*`, jihozlar bloklar sifatida).
+   - DXF (AutoCAD; qatlamlar `XONA_*` va `AT_*`, jihozlar bloklar sifatida);
+   - **Excel hisobot** — joriy bino yoki bir nechta bino (`.ttysi` fayllar) bo'yicha: etajlar
+     kesimida jihozlar soni, har bir xonadagi jihozlar va jihozlarning to'liq ro'yxati.
 
 Loyiha bitta `.ttysi` faylda saqlanadi: bino, barcha etajlar va kadastr rasmlari shu faylning ichida bo'ladi.
 
@@ -47,7 +54,11 @@ Loyiha bitta `.ttysi` faylda saqlanadi: bino, barcha etajlar va kadastr rasmlari
   dastur belgining **joyini** topadi, **turini** esa siz bitta tugma bilan tasdiqlaysiz.
 - Qora ruchkadagi belgilarni bosma chizmadan rang bo'yicha ajratib bo'lmaydi. Sozlamalarda "qora
   yozuvlarni nomzod qilish" degan tajribaviy variant bor, lekin unga bosma raqamlar ham tushadi.
-- Avtomatik chizma taxminiy natija beradi va uni albatta ko'zdan kechirish kerak. Xonalar bir-biriga
+- Avtomatik chizma taxminiy natija beradi va uni albatta ko'zdan kechirish kerak. Haqiqiy kadastr
+  hujjatlarida (PDF va telefon rasmlari) xonalarning taxminan 65–90% i to'g'ri ajraladi. Ba'zan bitta
+  xona ikkiga bo'linadi yoki koridorga qo'shilib ketadi — `Ctrl+M` va `B` bilan tuzatiladi. Ramka
+  chetiga tegib turgan xonalar tushib qolishi mumkin, shuning uchun etajni ramkaga biroz bo'sh joy
+  qoldirib oling. Xonalar bir-biriga
   qo'shilib ketsa — "Eshik kengligi"ni oshiring. Ortiqcha mayda xonalar chiqsa — "Eng kichik xona"ni oshiring.
 
 ## O'rnatish

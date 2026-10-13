@@ -62,3 +62,47 @@ def make_phone_photo(plan: np.ndarray) -> np.ndarray:
     # soya: chapdan o'ngga yorug'lik pasayadi
     grad = np.linspace(1.0, 0.65, canvas.shape[1])[None, :, None]
     return (canvas * grad).astype(np.uint8)
+
+
+DOORS = [(250, 400, True), (550, 400, True), (900, 400, True),
+         (300, 520, True), (800, 520, True), (400, 250, False)]
+
+
+def make_double_line_plan(m_per_px: float = 0.025) -> np.ndarray:
+    """Kadastrdagidek: devorlar qo'sh ingichka chiziq, eshiklar - bo'shliq va ochilish yoyi.
+
+    1 piksel = 2.5 sm: devor ~0.25 m, eshik ~0.9 m, koridor 3 m.
+    """
+    img = np.full((900, 1200, 3), 252, np.uint8)
+    t = 10  # devor qalinligi (qo'sh chiziqlar orasi)
+    ink = (40, 40, 40)
+    door = 36
+    walls = set()
+    for x0, y0, x1, y1 in ROOMS:
+        walls |= {(x0, y0, x1, y0), (x0, y1, x1, y1), (x0, y0, x0, y1), (x1, y0, x1, y1)}
+    for x0, y0, x1, y1 in walls:
+        if y0 == y1:
+            for dy in (-t // 2, t // 2):
+                cv2.line(img, (x0 - t // 2, y0 + dy), (x1 + t // 2, y0 + dy), ink, 1)
+        else:
+            for dx in (-t // 2, t // 2):
+                cv2.line(img, (x0 + dx, y0 - t // 2), (x0 + dx, y1 + t // 2), ink, 1)
+    for x, y, horiz in DOORS:
+        if horiz:
+            cv2.rectangle(img, (x - door // 2, y - t // 2 - 1), (x + door // 2, y + t // 2 + 1), (252, 252, 252), -1)
+            cv2.line(img, (x - door // 2, y - t // 2), (x - door // 2, y + t // 2), ink, 1)
+            cv2.line(img, (x + door // 2, y - t // 2), (x + door // 2, y + t // 2), ink, 1)
+            cv2.ellipse(img, (x - door // 2, y + t // 2), (door, door), 0, 0, 90, ink, 1)  # ochilish yoyi
+        else:
+            cv2.rectangle(img, (x - t // 2 - 1, y - door // 2), (x + t // 2 + 1, y + door // 2), (252, 252, 252), -1)
+            cv2.line(img, (x - t // 2, y - door // 2), (x + t // 2, y - door // 2), ink, 1)
+            cv2.line(img, (x - t // 2, y + door // 2), (x + t // 2, y + door // 2), ink, 1)
+            cv2.ellipse(img, (x + t // 2, y - door // 2), (door, door), 0, 0, 90, ink, 1)
+    for i, (x0, y0, x1, y1) in enumerate(ROOMS, 1):
+        cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+        cv2.putText(img, str(i), (cx - 6, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.45, ink, 1)
+        area = (x1 - x0) * (y1 - y0) * m_per_px ** 2
+        cv2.putText(img, f"{area:.2f}", (cx - 18, cy + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, ink, 1)
+    # skaner shovqini va JPEG siqilishi
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 60])
+    return cv2.imdecode(buf, cv2.IMREAD_COLOR)

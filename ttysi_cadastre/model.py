@@ -41,6 +41,19 @@ class Room:
         a *= 0.5
         return (cx / (6 * a), cy / (6 * a))
 
+    def contains(self, x: float, y: float) -> bool:
+        """Nuqta xona ichidami (nur kesish usuli)."""
+        inside = False
+        pts = self.points
+        j = len(pts) - 1
+        for i in range(len(pts)):
+            xi, yi = pts[i]
+            xj, yj = pts[j]
+            if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+                inside = not inside
+            j = i
+        return inside
+
     def area(self) -> float:
         pts = self.points
         s = 0.0
@@ -70,6 +83,11 @@ class Floor:
     equipment: list[Equipment] = field(default_factory=list)
     scale_m_per_px: float | None = None   # masshtab (1 piksel necha metr)
     id: str = field(default_factory=new_id)
+
+    def room_of(self, e: "Equipment") -> "Room | None":
+        """Jihoz joylashgan xona (ustma-ust bo'lsa - eng kichigi)."""
+        hits = [r for r in self.rooms if r.contains(e.x, e.y)]
+        return min(hits, key=lambda r: r.area()) if hits else None
 
     def to_dict(self) -> dict:
         return {

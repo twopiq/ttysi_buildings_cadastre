@@ -19,12 +19,23 @@ class RenderOptions:
     title: bool = True
 
 
+def meter_px(floor: Floor) -> float:
+    """Chizmadagi taxminiy "1 metr" piksellarda (masshtab bo'lmasa - rasm o'lchamidan)."""
+    if floor.scale_m_per_px:
+        return 1.0 / floor.scale_m_per_px
+    return (floor.width * floor.height) ** 0.5 / 40
+
+
 def wall_width(floor: Floor) -> float:
-    return max(floor.width, floor.height) * 0.005
+    return meter_px(floor) * 0.3
+
+
+def label_px(floor: Floor) -> int:
+    return max(1, int(meter_px(floor) * 0.6))
 
 
 def symbol_radius(floor: Floor) -> float:
-    return max(floor.width, floor.height) * 0.013
+    return meter_px(floor) * 0.55
 
 
 def draw_equipment_symbol(p: QPainter, code: str, center: QPointF, r: float) -> None:
@@ -66,7 +77,7 @@ def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImag
         p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in room.points]))
     if opts.room_names:
         f = QFont("Arial")
-        f.setPixelSize(max(1, int(max(floor.width, floor.height) * 0.015)))
+        f.setPixelSize(label_px(floor))
         p.setFont(f)
         p.setPen(QColor("#424242"))
         for room in floor.rooms:
@@ -124,10 +135,15 @@ def draw_page(p: QPainter, page: QRectF, building: Building, floor: Floor,
         area.setTop(area.top() + h + unit)
 
     if opts.legend:
-        lw = unit * 19
-        legend = QRectF(area.right() - lw, area.top(), lw, area.height())
-        draw_legend(p, legend, floor, unit)
-        area.setRight(area.right() - lw - unit)
+        if is_wide(floor):
+            # uzun etaj - shartli belgilar pastda, gorizontal
+            lh = unit * 7
+            draw_legend(p, QRectF(area.left(), area.bottom() - lh, area.width(), lh), floor, unit, columns=6)
+            area.setBottom(area.bottom() - lh - unit)
+        else:
+            lw = unit * 19
+            draw_legend(p, QRectF(area.right() - lw, area.top(), lw, area.height()), floor, unit)
+            area.setRight(area.right() - lw - unit)
 
     # chizmani maydonga sig'dirish
     s = min(area.width() / floor.width, area.height() / floor.height)
@@ -139,37 +155,46 @@ def draw_page(p: QPainter, page: QRectF, building: Building, floor: Floor,
     p.restore()
 
 
-def draw_legend(p: QPainter, rect: QRectF, floor: Floor, unit: float) -> None:
+def is_wide(floor: Floor) -> bool:
+    return floor.width / max(1, floor.height) > 2.2
+
+
+def draw_legend(p: QPainter, rect: QRectF, floor: Floor, unit: float, columns: int = 1) -> None:
     counts = equipment_counts(floor)
     f = QFont("Arial")
     f.setBold(True)
     f.setPixelSize(int(unit * 1.1))
     p.setFont(f)
     p.setPen(QColor("black"))
-    y = rect.top()
-    p.drawText(QRectF(rect.left(), y, rect.width(), unit * 2), Qt.AlignLeft | Qt.AlignVCenter,
+    p.drawText(QRectF(rect.left(), rect.top(), rect.width(), unit * 2), Qt.AlignLeft | Qt.AlignVCenter,
                "Shartli belgilar")
-    y += unit * 2.4
     f.setBold(False)
     f.setPixelSize(int(unit * 0.9))
+
+    items = []  # (chizish funksiyasi, matn)
     types = list(EQUIPMENT_TYPES) + ([UNKNOWN] if counts.get(UNKNOWN.code) else [])
     for t in types:
-        r = unit * 0.7
-        draw_equipment_symbol(p, t.code, QPointF(rect.left() + r, y + unit * 0.8), r)
-        p.setFont(f)
-        p.setPen(QColor("black"))
-        p.drawText(QRectF(rect.left() + 2.2 * r + unit * 0.3, y, rect.width() - 3 * r, unit * 1.6),
-                   Qt.AlignLeft | Qt.AlignVCenter, f"{t.name} — {counts.get(t.code, 0)} ta")
-        y += unit * 2
-    y += unit
+        items.append((("eq", t.code), f"{t.name} — {counts.get(t.code, 0)} ta"))
     for kind, (name, color) in ROOM_KINDS.items():
         n = sum(1 for r in floor.rooms if r.kind == kind)
-        if not n:
-            continue
-        p.setPen(QPen(QColor("#212121"), unit * 0.12))
-        p.setBrush(QColor(color))
-        p.drawRect(QRectF(rect.left(), y + unit * 0.2, unit * 1.4, unit * 1.2))
+        if n:
+            items.append((("room", color), f"{name} — {n} ta"))
+
+    col_w = rect.width() / columns
+    row_h = unit * 2
+    rows = -(-len(items) // columns)
+    for i, ((what, arg), text) in enumerate(items):
+        col, row = (i // rows, i % rows) if columns > 1 else (0, i)
+        x = rect.left() + col * col_w
+        y = rect.top() + unit * 2.4 + row * row_h + (unit if columns == 1 and what == "room" else 0)
+        if what == "eq":
+            r = unit * 0.7
+            draw_equipment_symbol(p, arg, QPointF(x + r, y + unit * 0.8), r)
+        else:
+            p.setPen(QPen(QColor("#212121"), unit * 0.12))
+            p.setBrush(QColor(arg))
+            p.drawRect(QRectF(x, y + unit * 0.2, unit * 1.4, unit * 1.2))
+        p.setFont(f)
         p.setPen(QColor("black"))
-        p.drawText(QRectF(rect.left() + unit * 1.9, y, rect.width(), unit * 1.6),
-                   Qt.AlignLeft | Qt.AlignVCenter, f"{name} — {n} ta")
-        y += unit * 1.8
+        p.drawText(QRectF(x + unit * 1.9, y, col_w - unit * 2, unit * 1.6),
+                   Qt.AlignLeft | Qt.AlignVCenter, text)

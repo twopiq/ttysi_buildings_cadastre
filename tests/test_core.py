@@ -3,8 +3,8 @@ import os
 import ezdxf
 import pytest
 
-from tests.synthetic import MARKS, ROOMS, make_phone_photo, make_plan
-from ttysi_cadastre.detection import detect, find_paper_corners, warp_to_rect
+from tests.synthetic import MARKS, ROOMS, make_double_line_plan, make_phone_photo, make_plan
+from ttysi_cadastre.detection import DetectParams, detect, find_paper_corners, warp_to_rect
 from ttysi_cadastre.geometry import merge_rooms, split_room
 from ttysi_cadastre.model import Building, Equipment, Floor, Room
 
@@ -31,6 +31,27 @@ def test_detect_phone_photo():
     res = detect(img)
     assert len(res.rooms) == len(ROOMS)
     assert len(res.marks) == len(MARKS)
+
+
+def test_detect_double_line_walls_with_scale():
+    """Kadastr uslubi: qo'sh ingichka chiziqli devorlar, eshik yoylari, masshtab ma'lum."""
+    mpp = 0.025
+    res = detect(make_double_line_plan(mpp), DetectParams(m_per_px=mpp, wall_m=0.3, door_m=1.2))
+    assert len(res.rooms) == len(ROOMS)
+    found = sorted(_bbox(r.points) for r in res.rooms)
+    for exp, got in zip(sorted(ROOMS), found):
+        assert all(abs(a - b) < 10 for a, b in zip(exp, got)), (exp, got)
+    assert [r.kind for r in res.rooms].count("corridor") == 1
+
+
+def test_room_contains_and_room_of():
+    f = Floor(name="x")
+    big = Room(points=[(0, 0), (100, 0), (100, 100), (0, 100)], name="katta")
+    small = Room(points=[(10, 10), (30, 10), (30, 30), (10, 30)], name="kichik")
+    f.rooms = [big, small]
+    assert f.room_of(Equipment(code="T", x=20, y=20)) is small
+    assert f.room_of(Equipment(code="T", x=60, y=60)) is big
+    assert f.room_of(Equipment(code="T", x=160, y=60)) is None
 
 
 def test_split_and_merge():
@@ -108,3 +129,48 @@ def test_main_window(qapp):
     assert f.equipment[-1].code == "?"
     w.dirty = False
     w.close()
+
+
+def test_excel_report(tmp_path):
+    import openpyxl
+    from ttysi_cadastre.report import export_excel
+    b, f = _sample()
+    f.equipment += [Equipment(code="T", x=150, y=150), Equipment(code="T", x=160, y=150)]
+    p = str(tmp_path / "h.xlsx")
+    export_excel(p, [b, b])
+    wb = openpyxl.load_workbook(p)
+    rows = list(wb["Umumiy"].iter_rows(values_only=True))
+    head = rows[0]
+    first = dict(zip(head, rows[1]))
+    assert first["T"] == 3 and first["W"] == 1 and first["Tasdiqlanmagan"] == 1
+    total = dict(zip(head, rows[-1]))
+    assert total["Bino"] == "BARCHA BINOLAR" and total["T"] == 6
+    rooms = [dict(zip(rows_h, r)) for rows_h in [next(wb["Xonalar"].iter_rows(values_only=True))]
+             for r in list(wb["Xonalar"].iter_rows(values_only=True))[1:]]
+    r101 = next(r for r in rooms if r["Xona №"] == "101")
+    assert r101["T"] == 2 and r101["W"] == 1 and r101["Maydon, m²"] == 48.0
+    corridor = next(r for r in rooms if r["Turi"] == "Koridor")
+    assert corridor["T"] == 1 and corridor["Tasdiqlanmagan"] == 1
+    assert wb["Jihozlar"].max_row == 1 + 2 * 9
+
+
+def test_pdf_page_render(qapp, tmp_path):
+    """PDF sahifasini rasm va qog'oz o'lchami (mm/piksel) bilan olish."""
+    from PySide6.QtCore import QMarginsF, QRectF
+    from PySide6.QtGui import QPageLayout, QPageSize, QPainter, QPdfWriter
+    from PySide6.QtPdf import QPdfDocument
+    from ttysi_cadastre.ui.import_dialog import PdfPageDialog, cv_to_qimage
+    p = str(tmp_path / "k.pdf")
+    w = QPdfWriter(p)
+    w.setPageLayout(QPageLayout(QPageSize(QPageSize.A3), QPageLayout.Landscape, QMarginsF(0, 0, 0, 0)))
+    painter = QPainter(w)
+    r = w.pageLayout().paintRectPixels(w.resolution())
+    painter.drawImage(QRectF(0, 0, r.width(), r.height()), cv_to_qimage(make_plan(False)))
+    painter.end()
+    doc = QPdfDocument()
+    doc.load(p)
+    dlg = PdfPageDialog(doc)
+    img, mm_per_px = dlg.render()
+    assert img.shape[1] == pytest.approx(420 / 25.4 * 200, rel=0.01)
+    assert mm_per_px == pytest.approx(25.4 / 200)
+    assert len(detect(img).rooms) == len(ROOMS)

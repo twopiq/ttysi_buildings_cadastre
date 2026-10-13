@@ -10,12 +10,15 @@ from PySide6.QtSvg import QSvgGenerator
 
 from .equipment import EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
 from .model import Building, Floor
-from .render import RenderOptions, draw_page, room_label, symbol_radius
+from .render import RenderOptions, draw_page, is_wide, label_px, room_label, symbol_radius
 
 
 def _page_size(floor: Floor, long_side: int, legend: bool) -> tuple[int, int]:
     """Chizma nisbatiga mos sahifa o'lchami (shartli belgilar ustuni bilan)."""
     ratio = floor.width / floor.height
+    if is_wide(floor):
+        # uzun etaj: pastda sarlavha va shartli belgilar uchun joy
+        return long_side, int(max(long_side / ratio * 1.3, long_side * 0.3))
     if legend:
         ratio += 0.4
     if ratio >= 1:
@@ -106,7 +109,7 @@ def export_dxf(path: str, building: Building, floor: Floor) -> None:
         lname = f"AT_{t.code if t.code != '?' else 'TASDIQLANMAGAN'}"
         doc.layers.add(lname, color=_ACI[t.code]).description = t.name
 
-    text_h = max(floor.width, floor.height) * 0.012 * k
+    text_h = label_px(floor) * 0.8 * k
     for room in floor.rooms:
         layer = f"XONA_{room.kind.upper()}"
         msp.add_lwpolyline([pt(x, y) for x, y in room.points], close=True,
