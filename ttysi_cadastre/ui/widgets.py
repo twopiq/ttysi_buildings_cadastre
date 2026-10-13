@@ -338,7 +338,9 @@ QMenuBar::item {{ padding: 4px 10px; }}
 QMenuBar::item:selected {{ background: {theme.PRIMARY_SOFT}; color: {theme.PRIMARY_DARK}; border-radius: 4px; }}
 QStatusBar {{ background: {theme.SURFACE}; border-top: 1px solid {theme.LINE}; color: {theme.INK_2}; }}
 QFrame#topbar, QFrame#steps {{ background: {theme.SURFACE}; border-bottom: 1px solid {theme.LINE}; }}
-QLabel#logo {{ background: {theme.PRIMARY}; color: white; border-radius: 8px; font-weight: 700; font-size: 13px; }}
+QLabel#logo, QPushButton#logo {{ background: {theme.PRIMARY}; color: white; border: none; border-radius: 8px;
+    font-weight: 700; font-size: 13px; min-height: 0; padding: 0; }}
+QPushButton#logo:hover {{ background: {theme.PRIMARY_DARK}; }}
 QLabel#projectName {{ font-weight: 600; font-size: 15px; }}
 QLabel#projectState, QLabel#muted, QLabel#fieldLabel {{ color: {theme.INK_3}; font-size: 12px; }}
 QLabel#fieldLabel {{ font-size: 13px; color: {theme.INK_2}; }}

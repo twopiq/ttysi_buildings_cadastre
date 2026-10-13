@@ -24,6 +24,7 @@ from ..render import RenderOptions, equipment_counts, meter_px, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
 from .export_dialog import ExportDialog
+from .home import HomePage, remember
 from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, WALL, EquipmentItem,
                      FloorScene, FloorView, RoomItem, WallItem)
 from .import_dialog import ImportDialog, PdfPageDialog, RedetectDialog, image_paper_mm_per_px
@@ -93,6 +94,12 @@ class MainWindow(QMainWindow):
         self._tabs_sig = None
         self.build_actions()
         self.pages = QStackedWidget()
+        self.home = HomePage(self.settings, self.build_settings_menu())
+        self.home.open_path.connect(self.open_project)
+        self.home.open_dialog.connect(lambda: self.open_project())
+        self.home.new_building.connect(self.new_building)
+        self.home.new_from_file.connect(self.new_building)
+        self.pages.addWidget(self.home)
         self.editor = self.build_editor()
         self.pages.addWidget(self.editor)
         self.setCentralWidget(self.pages)
@@ -100,6 +107,7 @@ class MainWindow(QMainWindow):
         self.resize(1440, 900)
         self.refresh_all()
         self.select_tool(SELECT)
+        self.pages.setCurrentWidget(self.home)
         # o'rnatilgan dasturda: ochilgandan keyin fonda yangilanishni tekshirish
         if is_frozen() and load_settings()["auto"]:
             QTimer.singleShot(4000, lambda: self.updater.check(silent=True))
@@ -109,6 +117,7 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
         A = self._act
         m = mb.addMenu("&Fayl")
+        A(m, "Bosh sahifa", self.show_home, "Ctrl+H", "file.home")
         A(m, "Yangi loyiha", self.new_project, QKeySequence.New, "file.new")
         A(m, "Ochish...", self.open_project, QKeySequence.Open, "file.open")
         A(m, "Saqlash", self.save_project, QKeySequence.Save, "file.save")
@@ -290,10 +299,12 @@ class MainWindow(QMainWindow):
         lay = QHBoxLayout(top)
         lay.setContentsMargins(20, 8, 20, 8)
         lay.setSpacing(16)
-        logo = QLabel("AT")
+        logo = QPushButton("AT")
         logo.setObjectName("logo")
         logo.setFixedSize(32, 32)
-        logo.setAlignment(Qt.AlignCenter)
+        logo.setCursor(Qt.PointingHandCursor)
+        logo.setToolTip("Bosh sahifa — barcha binolar")
+        logo.clicked.connect(self.show_home)
         lay.addWidget(logo)
         col = QVBoxLayout()
         col.setSpacing(0)
@@ -1125,9 +1136,10 @@ class MainWindow(QMainWindow):
     def next_floor_name(self):
         return f"{len(self.building.floors) + 1}-etaj"
 
-    def add_floor_from_image(self):
-        last = self.settings.value("last_dir", "")
-        path, _ = QFileDialog.getOpenFileName(self, "Kadastr hujjatini tanlang", last, IMAGE_FILTER)
+    def add_floor_from_image(self, path: str | None = None):
+        if not path:
+            last = self.settings.value("last_dir", "")
+            path, _ = QFileDialog.getOpenFileName(self, "Kadastr hujjatini tanlang", last, IMAGE_FILTER)
         if not path:
             return
         self.settings.setValue("last_dir", os.path.dirname(path))
@@ -1334,6 +1346,29 @@ class MainWindow(QMainWindow):
             return self.save_project()
         return r == QMessageBox.Discard
 
+    def build_settings_menu(self) -> QMenu:
+        m = QMenu(self)
+        m.addAction("Klaviatura tugmalari...", self.edit_shortcuts)
+        m.addAction("Qo'llanma", self.show_help)
+        m.addSeparator()
+        m.addAction("Yangilanishni tekshirish...", lambda: self.updater.check(silent=False))
+        m.addAction("Yangilanish sozlamalari...", lambda: UpdateSettingsDialog(self).exec())
+        return m
+
+    def show_home(self):
+        if self.pages.currentWidget() is self.home or not self.maybe_save():
+            return
+        self.home.refresh()
+        self.pages.setCurrentWidget(self.home)
+
+    def new_building(self, path: str | None = None):
+        """Bosh sahifadan: yangi loyiha va darhol etaj yuklash."""
+        if self.pages.currentWidget() is not self.home and not self.maybe_save():
+            return
+        self.dirty = False
+        self.new_project()
+        self.add_floor_from_image(path)
+
     def new_project(self):
         if not self.maybe_save():
             return
@@ -1359,6 +1394,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("last_dir", os.path.dirname(path))
         self.building = b
         self.path = path
+        remember(self.settings, b, path)
         self.histories.clear()
         self.bg_cache.clear()
         self.refresh_all()
@@ -1372,6 +1408,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Saqlab bo'lmadi", str(e))
             return False
         self.saved_at = datetime.now().strftime("%H:%M")
+        remember(self.settings, self.building, self.path)
         self.set_dirty(False)
         self.statusBar().showMessage(f"Saqlandi: {self.path}", 5000)
         return True
