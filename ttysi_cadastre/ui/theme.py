@@ -71,11 +71,14 @@ QPushButton:focus {{ border: 2px solid {PRIMARY}; }}
 QPushButton#primary {{ background: {PRIMARY}; color: white; border: none; }}
 QPushButton#primary:hover {{ background: {PRIMARY_DARK}; }}
 QPushButton#danger {{ color: {DANGER_FG}; border-color: {DANGER_LINE}; }}
-QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox, QKeySequenceEdit {{
+QLineEdit, QComboBox, QKeySequenceEdit {{
     min-height: 30px; border: 1px solid {LINE_STRONG}; border-radius: 8px; padding: 0 8px; background: {SURFACE};
 }}
+/* Son maydonlariga ramka/ichki chekinish berilmaydi: Qt'da (ayniqsa tugmasiz maydonda) matn qismi
+   1 piksel enga tushib qolardi - ularni Fusion uslubi o'zi chizadi */
+QDoubleSpinBox, QSpinBox {{ min-height: 30px; }}
 QComboBox::drop-down {{ border: none; width: 26px; }}
-QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {{ border: 2px solid {PRIMARY}; }}
+QLineEdit:focus, QComboBox:focus {{ border: 2px solid {PRIMARY}; }}
 QProgressBar {{ border: none; border-radius: 4px; background: #EEF1F4; max-height: 8px; }}
 QProgressBar::chunk {{ border-radius: 4px; background: {PRIMARY}; }}
 QToolTip {{ color: {INK}; background: {SURFACE}; border: 1px solid {LINE}; }}

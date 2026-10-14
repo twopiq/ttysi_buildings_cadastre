@@ -115,6 +115,13 @@ class Floor:
     scale_m_per_px: float | None = None   # masshtab (1 piksel necha metr)
     wall_m: float = 0.30                  # xona devorlarining qalinligi (metr)
     symbol_scale: float = 1.0             # AT belgilarining o'lchami (1.0 - standart)
+    ratio: int = 0                        # shtampdagi nisbat (1:ratio), 0 - noma'lum
+    paper_mm_per_px: float | None = None  # qog'ozda 1 piksel necha mm (PDF/DPI dan); nisbat bilan masshtab beradi
+    # kadastr foni chizmaga nisbatan: siljish (piksel), masshtab va burilish (etaj markazi atrofida)
+    bg_dx: float = 0.0
+    bg_dy: float = 0.0
+    bg_scale: float = 1.0
+    bg_rot: float = 0.0
     id: str = field(default_factory=new_id)
 
     def room_of(self, e: "Equipment") -> "Room | None":
@@ -140,6 +147,26 @@ class Floor:
         self.height = round(self.height * k)
         if self.scale_m_per_px:
             self.scale_m_per_px /= k
+        if self.paper_mm_per_px:
+            self.paper_mm_per_px /= k
+        self.bg_dx *= k
+        self.bg_dy *= k
+
+    def apply_ratio(self, ratio: int) -> bool:
+        """Nisbat (1:ratio) bo'yicha masshtab. Qog'oz o'lchami noma'lum bo'lsa - faqat nisbat saqlanadi."""
+        self.ratio = int(ratio)
+        if self.paper_mm_per_px and ratio > 0:
+            self.scale_m_per_px = self.paper_mm_per_px * ratio / 1000.0
+            return True
+        return False
+
+    def bg_identity(self) -> bool:
+        return (abs(self.bg_dx) < 1e-9 and abs(self.bg_dy) < 1e-9 and abs(self.bg_scale - 1) < 1e-9
+                and abs(self.bg_rot) < 1e-9)
+
+    def reset_bg(self) -> None:
+        self.bg_dx = self.bg_dy = self.bg_rot = 0.0
+        self.bg_scale = 1.0
 
     def to_dict(self) -> dict:
         return {
@@ -150,6 +177,9 @@ class Floor:
             "scale_m_per_px": self.scale_m_per_px,
             "wall_m": self.wall_m,
             "symbol_scale": self.symbol_scale,
+            "ratio": self.ratio,
+            "paper_mm_per_px": self.paper_mm_per_px,
+            "bg": [self.bg_dx, self.bg_dy, self.bg_scale, self.bg_rot],
             "rooms": [asdict(r) for r in self.rooms],
             "equipment": [asdict(e) for e in self.equipment],
             "doors": [asdict(d) for d in self.doors],
@@ -169,6 +199,9 @@ class Floor:
         self.scale_m_per_px = d.get("scale_m_per_px")
         self.wall_m = d.get("wall_m", 0.30)
         self.symbol_scale = d.get("symbol_scale", 1.0)
+        self.ratio = int(d.get("ratio", 0) or 0)
+        self.paper_mm_per_px = d.get("paper_mm_per_px")
+        self.bg_dx, self.bg_dy, self.bg_scale, self.bg_rot = d.get("bg", [0.0, 0.0, 1.0, 0.0])
         self.rooms = [Room(points=[tuple(p) for p in r["points"]], kind=r.get("kind", "room"),
                            name=r.get("name", ""), id=r.get("id") or new_id(),
                            direction=r.get("direction", ""), shape=r.get("shape", ""))

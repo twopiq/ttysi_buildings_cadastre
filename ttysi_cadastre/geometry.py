@@ -182,6 +182,50 @@ def nearest_wall(rooms, x: float, y: float, walls=()):
     return best
 
 
+# ---------------------------------------------------------------- kadastr fonini moslash
+
+def bg_map(floor, x: float, y: float) -> tuple[float, float]:
+    """Fon rasmidagi nuqta (etaj kengligiga keltirilgan rasm piksellarida) -> chizma koordinatasi.
+
+    Fon etaj markazi atrofida bg_scale marta kattalashtiriladi, bg_rot gradusga buriladi va
+    (bg_dx, bg_dy) ga suriladi.
+    """
+    cx, cy = floor.width / 2, floor.height / 2
+    a = math.radians(floor.bg_rot)
+    s = floor.bg_scale
+    dx, dy = x - cx, y - cy
+    return (cx + s * (dx * math.cos(a) - dy * math.sin(a)) + floor.bg_dx,
+            cy + s * (dx * math.sin(a) + dy * math.cos(a)) + floor.bg_dy)
+
+
+def bg_compose(floor, scale: float, angle: float, tx: float, ty: float) -> None:
+    """Fonga qo'shimcha o'xshashlik o'zgarishi qo'llaydi: p -> scale*R(angle)*p + (tx, ty) (chizma
+    koordinatalarida). Natija yana (siljish, masshtab, burilish) parametrlariga yoziladi."""
+    cx, cy = floor.width / 2, floor.height / 2
+    mx, my = bg_map(floor, cx, cy)                       # fon markazining hozirgi joyi
+    a = math.radians(angle)
+    nx = scale * (mx * math.cos(a) - my * math.sin(a)) + tx
+    ny = scale * (mx * math.sin(a) + my * math.cos(a)) + ty
+    floor.bg_scale *= scale
+    floor.bg_rot = ((floor.bg_rot + angle + 180) % 360) - 180
+    floor.bg_dx, floor.bg_dy = nx - cx, ny - cy
+
+
+def similarity_from_pairs(p1, q1, p2, q2) -> tuple[float, float, float, float]:
+    """Ikki juft nuqta (p -> q) bo'yicha o'xshashlik: (masshtab, burchak gradusda, tx, ty)."""
+    vx, vy = p2[0] - p1[0], p2[1] - p1[1]
+    wx, wy = q2[0] - q1[0], q2[1] - q1[1]
+    lp, lq = math.hypot(vx, vy), math.hypot(wx, wy)
+    if lp < 1e-9 or lq < 1e-9:
+        raise ValueError("Nuqtalar bir-biriga juda yaqin")
+    s = lq / lp
+    ang = math.degrees(math.atan2(wy, wx) - math.atan2(vy, vx))
+    a = math.radians(ang)
+    tx = q1[0] - s * (p1[0] * math.cos(a) - p1[1] * math.sin(a))
+    ty = q1[1] - s * (p1[0] * math.sin(a) + p1[1] * math.cos(a))
+    return s, ang, tx, ty
+
+
 def rotate_points(points, angle: float, center=None) -> list[tuple[float, float]]:
     """Nuqtalarni markaz atrofida aylantiradi (gradus; ekranda musbat - soat yo'nalishida).
 

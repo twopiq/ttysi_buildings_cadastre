@@ -8,21 +8,23 @@ from dataclasses import replace
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPainterPathStroker, QPen,
                            QPixmap, QPolygonF)
-from PySide6.QtWidgets import (QGraphicsItem, QInputDialog,
+from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QInputDialog,
                                QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsPolygonItem,
                                QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem,
                                QGraphicsView, QMenu)
 
 from ..equipment import ROOM_KINDS, get_type
-from ..geometry import STAIR_DIRECTIONS, auto_stair_direction, nearest_wall, rotate_points
+from ..geometry import (STAIR_DIRECTIONS, auto_stair_direction, bg_compose, nearest_wall, rotate_points,
+                        similarity_from_pairs)
 from ..detection import ellipse_points
 from ..model import Door, Equipment, Floor, Room, Wall
-from ..render import (door_wall_thickness, draw_dome, draw_door, draw_equipment_symbol, draw_stairs, label_px,
+from ..render import (bg_qtransform, door_wall_thickness, draw_dome, draw_door, draw_equipment_symbol, draw_stairs, label_px,
                       meter_px, room_label, symbol_radius, wall_width)
 
 # Asboblar
 SELECT, ROOM_POLY, ROOM_RECT, EQUIP, SPLIT, SCALE, PAN, DOOR, STAIRS, WALL, DOME = (
     "select", "room_poly", "room_rect", "equip", "split", "scale", "pan", "door", "stairs", "wall", "dome")
+BG_MOVE, BG_ALIGN = "bg_move", "bg_align"       # kadastr fonini chizmaga moslash
 
 SNAP_PX = 10   # ekran piksellarida yopishish masofasi
 
@@ -129,6 +131,53 @@ class ResizeHandle(QGraphicsRectItem):
         self.target.resize_end()
 
 
+class RotateHandle(QGraphicsItem):
+    """Element ustidagi aylantirish tutqichi: sudrab istalgan burchakka burish (Shift - 15° qadam)."""
+
+    OFFSET = 30     # ekran piksellarida - element chegarasidan yuqorida
+    R = 7
+
+    def __init__(self, target):
+        super().__init__(target)
+        self.target = target
+        self.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        self.setCursor(Qt.CrossCursor)
+        self.setZValue(11)
+        self.setToolTip("Sudrab istalgan burchakka burang (Shift - 15° qadam)")
+
+    def boundingRect(self):
+        return QRectF(-self.R - 2, -self.OFFSET - self.R - 2, 2 * self.R + 4, self.OFFSET + self.R + 4)
+
+    def shape(self):
+        path = QPainterPath()
+        path.addEllipse(QPointF(0, -self.OFFSET), self.R + 3, self.R + 3)
+        return path
+
+    def paint(self, p: QPainter, option, widget=None):
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor("#1565c0"), 1.5))
+        p.drawLine(QPointF(0, 0), QPointF(0, -self.OFFSET + self.R))
+        p.setBrush(QColor("white"))
+        p.drawEllipse(QPointF(0, -self.OFFSET), self.R, self.R)
+        p.drawArc(QRectF(-3.5, -self.OFFSET - 3.5, 7, 7), 30 * 16, 270 * 16)
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return super().mousePressEvent(event)
+        self.target.rotate_begin(event.scenePos())
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        ang = self.target.rotate_to(event.scenePos(), bool(event.modifiers() & Qt.ShiftModifier))
+        self.setToolTip(f"{ang:.1f}°")
+        views = self.scene().views() if self.scene() else []
+        if views and hasattr(views[0], "status"):
+            views[0].status.emit(f"Burilish: {ang:.1f}°  (Shift - 15° qadam)")
+
+    def mouseReleaseEvent(self, event):
+        self.target.resize_end()
+
+
 class Resizable:
     """Xona/zina va devor uchun umumiy: chegara bo'yicha o'lchamni o'zgartirish (tutqichlar va aniq qiymat)."""
 
@@ -162,11 +211,15 @@ class Resizable:
                     continue            # to'g'ri devor: faqat uzunligi bo'yicha
                 h = ResizeHandle(self, (hx, hy))
                 self.resize_handles.append(h)
+        self.resize_handles.append(RotateHandle(self))
         self.place_resize()
 
     def place_resize(self):
         x0, y0, x1, y1 = self.bbox()
         for h in getattr(self, "resize_handles", []):
+            if isinstance(h, RotateHandle):
+                h.setPos(QPointF((x0 + x1) / 2, y0))
+                continue
             hx, hy = h.role
             h.setPos(QPointF((x0, (x0 + x1) / 2, x1)[hx + 1], (y0, (y0 + y1) / 2, y1)[hy + 1]))
 
@@ -198,6 +251,23 @@ class Resizable:
             sx = sy = max(sx, sy)
         self.set_points([(ax + (x - ax) * sx, ay + (y - ay) * sy) for x, y in self._orig])
         self.place_resize()
+
+    def rotate_begin(self, p: QPointF):
+        self.resize_begin()
+        x0, y0, x1, y1 = self._obox
+        self._rc = ((x0 + x1) / 2, (y0 + y1) / 2)
+        self._ra = math.degrees(math.atan2(p.y() - self._rc[1], p.x() - self._rc[0]))
+
+    def rotate_to(self, p: QPointF, snap: bool = False) -> float:
+        if not getattr(self, "_orig", None):
+            self.rotate_begin(p)
+        ang = math.degrees(math.atan2(p.y() - self._rc[1], p.x() - self._rc[0])) - self._ra
+        ang = ((ang + 180) % 360) - 180
+        if snap:
+            ang = round(ang / 15) * 15
+        self.set_points(rotate_points(self._orig, ang, self._rc))
+        self.place_resize()
+        return ang
 
     def resize_end(self):
         self._orig = None
@@ -854,7 +924,7 @@ class FloorScene(QGraphicsScene):
         paper.setZValue(-20)
         if bg is not None and not bg.isNull():
             self.bg_item = self.addPixmap(QPixmap.fromImage(bg))
-            self.bg_item.setScale(floor.width / bg.width())
+            self.bg_item.setTransform(bg_qtransform(floor, bg.width()))
             self.bg_item.setZValue(-10)
             self.bg_item.setOpacity(self.bg_opacity)
             self.bg_item.setTransformationMode(Qt.SmoothTransformation)
@@ -866,6 +936,11 @@ class FloorScene(QGraphicsScene):
             self.addItem(DoorItem(door, floor))
         for eq in floor.equipment:
             self.addItem(EquipmentItem(eq, floor))
+
+    def update_bg(self):
+        """Fon joylashuvini etaj sozlamasidan (siljish, masshtab, burilish) qayta qo'llash."""
+        if self.bg_item is not None and self.floor is not None:
+            self.bg_item.setTransform(bg_qtransform(self.floor, self.bg_item.pixmap().width()))
 
     def set_bg_opacity(self, v: float):
         self.bg_opacity = v
@@ -1046,7 +1121,8 @@ class FloorView(QGraphicsView):
         if code:
             self.equip_code = code
         self.setDragMode(QGraphicsView.RubberBandDrag if tool == SELECT else QGraphicsView.NoDrag)
-        self.viewport().setCursor(Qt.ArrowCursor if tool == SELECT else Qt.CrossCursor)
+        self.viewport().setCursor(Qt.ArrowCursor if tool == SELECT else
+                                  Qt.OpenHandCursor if tool == BG_MOVE else Qt.CrossCursor)
         hints = {
             SELECT: "Tanlash: bosing yoki ramka torting. Ikki marta bosish - burchak qo'shish. Del - o'chirish.",
             ROOM_POLY: "Xona chizish: burchaklarni ketma-ket bosing. Enter / ikki marta bosish / birinchi nuqta - tugatish. Esc - bekor.",
@@ -1059,8 +1135,57 @@ class FloorView(QGraphicsView):
             EQUIP: f"{get_type(self.equip_code).name}: joyini bosing.",
             SPLIT: "Xonani bo'lish: bo'lish chizig'ining ikki nuqtasini bosing.",
             SCALE: "Masshtab: uzunligi ma'lum bo'lgan devorning ikki uchini bosing.",
+            BG_MOVE: "Fonni surish: kadastr rasmini sichqoncha bilan torting. Esc - tugatish.",
+            BG_ALIGN: self.align_hint(0),
         }
+        self.align_points = []
+        self._clear_align_marks()
         self.status.emit(hints.get(tool, ""))
+
+    # --- fonni 2 nuqta bo'yicha moslash
+    ALIGN_HINTS = ("1/4: kadastr rasmida 1-nuqtani bosing (masalan bino burchagi)",
+                   "2/4: chizmada unga mos joyni bosing",
+                   "3/4: kadastr rasmida 2-nuqtani bosing (birinchisidan uzoqroq)",
+                   "4/4: chizmada unga mos joyni bosing")
+
+    def align_hint(self, i: int) -> str:
+        return "Fonni moslash " + self.ALIGN_HINTS[i] + ". Esc - bekor."
+
+    def _clear_align_marks(self):
+        for m in getattr(self, "align_marks", []):
+            if m.scene():
+                m.scene().removeItem(m)
+        self.align_marks = []
+
+    def _align_click(self, p: QPointF):
+        i = len(self.align_points)
+        if i % 2 == 1:                       # chizmadagi nuqta - xona burchaklariga yopishadi
+            p = self.fscene.snap_point(p)
+        self.align_points.append(p)
+        mark = QGraphicsEllipseItem(-6, -6, 12, 12)
+        mark.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        mark.setPen(QPen(QColor("#B3261E" if i % 2 == 0 else "#1C5BA6"), 2))
+        mark.setBrush(Qt.NoBrush)
+        mark.setPos(p)
+        mark.setZValue(200)
+        self.fscene.addItem(mark)
+        self.align_marks.append(mark)
+        if len(self.align_points) < 4:
+            self.status.emit(self.align_hint(len(self.align_points)))
+            return
+        p1, q1, p2, q2 = [(q.x(), q.y()) for q in self.align_points]
+        self.align_points = []
+        self._clear_align_marks()
+        try:
+            s, ang, tx, ty = similarity_from_pairs(p1, q1, p2, q2)
+        except ValueError:
+            self.status.emit("Nuqtalar juda yaqin - qaytadan bosing. " + self.align_hint(0))
+            return
+        bg_compose(self.fscene.floor, s, ang, tx, ty)
+        self.fscene.update_bg()
+        self.fscene.changed_model.emit()
+        self.status.emit(f"Fon moslandi: masshtab {s * 100:.1f}%, burilish {ang:.1f}°. "
+                         "Yana moslash uchun qaytadan bosing, Esc - tugatish.")
 
     def cancel_drawing(self):
         self.points = []
@@ -1139,6 +1264,14 @@ class FloorView(QGraphicsView):
                 return
             super().mousePressEvent(event)
             return
+        if self.tool == BG_MOVE:
+            f = self.fscene.floor
+            self._bg_drag = (self.mapToScene(event.position().toPoint()), f.bg_dx, f.bg_dy)
+            self.viewport().setCursor(Qt.ClosedHandCursor)
+            return
+        if self.tool == BG_ALIGN:
+            self._align_click(self.mapToScene(event.position().toPoint()))
+            return
         shift = bool(event.modifiers() & Qt.ShiftModifier)
         p = self._snapped(event.position().toPoint())
         if self.tool == ROOM_POLY:
@@ -1179,6 +1312,13 @@ class FloorView(QGraphicsView):
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(d.x()))
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(d.y()))
             return
+        if self.tool == BG_MOVE and getattr(self, "_bg_drag", None):
+            start, dx, dy = self._bg_drag
+            cur = self.mapToScene(event.position().toPoint())
+            f = self.fscene.floor
+            f.bg_dx, f.bg_dy = dx + cur.x() - start.x(), dy + cur.y() - start.y()
+            self.fscene.update_bg()
+            return
         if self.tool in (ROOM_POLY, WALL, SPLIT, SCALE) and self.points:
             p = self._ortho_lock(self._snapped(event.position().toPoint()),
                                  bool(event.modifiers() & Qt.ShiftModifier))
@@ -1192,6 +1332,11 @@ class FloorView(QGraphicsView):
         if self._panning:
             self._panning = False
             self.viewport().setCursor(Qt.ArrowCursor if self.tool == SELECT else Qt.CrossCursor)
+            return
+        if self.tool == BG_MOVE and getattr(self, "_bg_drag", None):
+            self._bg_drag = None
+            self.viewport().setCursor(Qt.OpenHandCursor)
+            self.fscene.changed_model.emit()
             return
         if self.tool in (ROOM_RECT, STAIRS) and self.rect_start is not None and event.button() == Qt.LeftButton:
             r = QRectF(self.rect_start, self._snapped(event.position().toPoint())).normalized()
@@ -1249,6 +1394,11 @@ class FloorView(QGraphicsView):
             self.finish_polygon()
             return
         if event.key() == Qt.Key_Escape:
+            if self.tool == BG_ALIGN and self.align_points:
+                self.align_points = []
+                self._clear_align_marks()
+                self.status.emit(self.align_hint(0))
+                return
             if self.points or self.rect_start:
                 self.cancel_drawing()
             else:

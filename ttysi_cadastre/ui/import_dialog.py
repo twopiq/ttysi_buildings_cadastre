@@ -18,6 +18,28 @@ from ..detection import DetectParams, find_paper_corners, warp_to_rect
 from . import theme
 
 
+RATIOS = (100, 150, 200, 250, 300, 400, 500, 1000)
+
+
+def ratio_presets(spin) -> "QComboBox":
+    """Nisbat maydoni yonidagi tez tanlash ro'yxati (1:100 ... 1:1000)."""
+    box = QComboBox()
+    box.addItem("Tanlash", 0)
+    for r in RATIOS:
+        box.addItem(f"1:{r}", r)
+    box.setToolTip("Ko'p uchraydigan nisbatlar")
+
+    def pick(i):
+        r = box.itemData(i)
+        if r:
+            spin.setValue(r)
+        box.blockSignals(True)
+        box.setCurrentIndex(0)
+        box.blockSignals(False)
+    box.currentIndexChanged.connect(pick)
+    return box
+
+
 def cv_to_qimage(img: np.ndarray) -> QImage:
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     h, w = rgb.shape[:2]
@@ -451,7 +473,14 @@ class ImportDialog(QDialog):
         self.scale.setButtonSymbols(QSpinBox.NoButtons)
         self.scale.setValue(int(self.settings.value("last_scale", 300)) if paper_mm_per_px or from_pdf else 0)
         self.scale.setToolTip("Kadastr shtampidagi \"Нисбат\" (masalan 1:300 yoki 1:400)")
-        sw = _field("Nisbat (shtampdagi \"Нисбат\")", self.scale)
+        srow = QWidget()
+        sr = QHBoxLayout(srow)
+        sr.setContentsMargins(0, 0, 0, 0)
+        sr.setSpacing(6)
+        sr.addWidget(self.scale, 1)
+        self.scale_presets = ratio_presets(self.scale)
+        sr.addWidget(self.scale_presets)
+        sw = _field("Nisbat (shtampdagi \"Нисбат\")", srow)
         self.scale_hint = QLabel()
         self.scale_hint.setWordWrap(True)
         sw.layout().addWidget(self.scale_hint)
@@ -589,15 +618,15 @@ class ImportDialog(QDialog):
 
     def update_scale(self, *_):
         mpp = self.m_per_px()
-        self.scale.setEnabled(self.paper_mm_per_px is not None)
         self.params_w.set_metric(mpp is not None)
         if mpp:
             self.scale_hint.setObjectName("ok")
             self.scale_hint.setText(f"✓ Masshtab hisoblandi: 1 px = {mpp * 100:.1f} sm")
         elif self.paper_mm_per_px is None:
             self.scale_hint.setObjectName("muted")
-            self.scale_hint.setText("Rasmda qog'oz o'lchami yo'q — masshtabni keyin "
-                                    "\"Etaj → Masshtabni belgilash\" orqali bering.")
+            self.scale_hint.setText("Rasmda qog'oz o'lchami yo'q (telefon rasmi): nisbat saqlanadi, masshtabni "
+                                    "keyin 2 nuqta bilan belgilang - shundan so'ng nisbat o'zgarsa o'zi "
+                                    "qayta hisoblanadi.")
         else:
             self.scale_hint.setObjectName("muted")
             self.scale_hint.setText("Nisbatni kiriting — maydonlar m² da hisoblanadi.")

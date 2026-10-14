@@ -94,7 +94,7 @@ def test_dome_tool_and_editing(qapp, tmp_path):
     w.select_tool(SELECT)
     w.scene.clearSelection()
     item.setSelected(True)
-    assert item.handles == [] and len(item.resize_handles) == 8     # burchak nuqtalari yo'q, o'lcham bor
+    assert item.handles == [] and len(item.resize_handles) == 9     # burchak nuqtalari yo'q, o'lcham bor
     w.p_room_w.setValue(10)
     w.p_room_h.setValue(6)                                              # ellipsga aylanadi
     x0, y0, x1, y1 = item.bbox()

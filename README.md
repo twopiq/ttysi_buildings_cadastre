@@ -135,6 +135,9 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
      burchakdagisi ikki tomonga, qirradagisi bir tomonga cho'zadi (qarama-qarshi tomon joyida qoladi,
      `Shift` — nisbatni saqlash). Ko'k nuqtalar esa alohida burchakni suradi. Aniq o'lcham: o'ngdagi
      panelda "eni × bo'yi" (metrda);
+   - **Istalgan burchakka burish**: xona, zina, gumbaz yoki devor tanlanganda tepasida aylana tutqich
+     chiqadi — sudrab istalgan burchakka burasiz (`Shift` — 15° qadam). O'ngdagi panelda "Burish
+     (istalgan burchak)" maydoniga masalan `37.5` yozib **Burish** (eshik uchun ham);
    - **Kattalashtirish / kichiklashtirish**: `Ctrl+Alt+=` / `Ctrl+Alt+-` — tanlangan elementlar 10%
      ga (o'z markazi atrofida; eshik — kengligi). Faqat AT belgilari tanlangan bo'lsa — etajdagi
      belgilar o'lchami o'zgaradi (hech narsa tanlanmaganda paneldagi "AT belgilari o'lchami").
@@ -160,9 +163,18 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
    amalni, "Hammasini standartga qaytarish" esa barchasini asl holiga qaytaradi. O'zgartirilgan
    tugmalar menyularda, maslahatlarda, qo'llanmada va tasdiqlash ekranida darhol yangilanadi va
    kompyuterda saqlanib qoladi. Bu yerda yozilgan tugmalar — standart qiymatlar.
-8. **Masshtab (Etaj menyusi).** Uzunligi ma'lum devorni belgilasangiz, maydonlar m² da chiqadi va DXF
+8. **Nisbat va masshtab.** Hech narsa tanlanmaganda o'ngdagi panelda **"Nisbat"** maydoni: `1 : 200`,
+   `1 : 300`, `1 : 400` ... yozing yoki yonidagi ro'yxatdan tanlang. PDF'dan olingan etajda masshtab darhol
+   qayta hisoblanadi. Telefon rasmida qog'oz o'lchami noma'lum — avval masshtabni 2 nuqta bilan belgilang,
+   shundan keyin nisbat o'zgartirilsa o'zi qayta hisoblanadi. Etaj sarlavhasida nisbat ko'rinadi (1:300).
+   **Kadastr fonini moslash** (shu panel yoki Etaj menyusi): **✥ Surish** — rasmni sichqoncha bilan
+   suring; **⌖ 2 nuqta bilan moslash** — rasmdagi nuqtani, keyin chizmadagi mos joyni bosing (2 marta),
+   fon surilib, burilib va kattalashib o'z joyiga tushadi; **Burilish / O'lchami** — aniq qiymat;
+   **Fonni asl holiga qaytarish**. Moslash `Ctrl+Z` bilan bekor qilinadi, eksportda va qayta chizishda
+   ham hisobga olinadi.
+9. **Masshtab (Etaj menyusi).** Uzunligi ma'lum devorni belgilasangiz, maydonlar m² da chiqadi va DXF
    metrlarda saqlanadi.
-9. **Eksport** (yuqoridagi tugma yoki `Ctrl+E`):
+10. **Eksport** (yuqoridagi tugma yoki `Ctrl+E`):
    - PNG / JPG va SVG (barcha etajlar tanlansa — har etaj alohida fayl, tanlangan papkaga);
    - PDF (joriy etaj yoki barcha etajlar bitta faylda);
    - "Rejadagi (kerak) jihozlar" belgisini olib tashlasangiz, faqat mavjud jihozlar chiqadi;

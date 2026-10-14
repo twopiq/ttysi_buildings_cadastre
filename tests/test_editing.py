@@ -122,7 +122,7 @@ def test_resize_handles_and_size_fields(qapp):
     room = _item(w, RoomItem, lambda i: i.room.kind == "room")
     w.scene.clearSelection()
     room.setSelected(True)
-    assert len(room.resize_handles) == 8
+    assert len(room.resize_handles) == 9          # 8 ta o'lcham + 1 ta aylantirish
     assert w.p_room_w.value() == pytest.approx(8.0) and w.p_room_h.value() == pytest.approx(6.0)
     # o'ng-pastki burchakni sudrash: chap-yuqori joyida qoladi
     room.resize_begin()
@@ -178,4 +178,50 @@ def test_grow_shrink(qapp):
     from ttysi_cadastre.render import symbol_radius
     assert symbol_radius(f) == pytest.approx(50 * 0.55 * 1.5)
     assert math.isclose(Floor.from_dict(f.to_dict(), None).symbol_scale, 1.5)
+    _close(w)
+
+
+def test_rotate_any_angle(qapp):
+    from PySide6.QtCore import QPointF
+    from ttysi_cadastre.ui.canvas import RotateHandle, RoomItem
+    w, f = _window()
+    room = _item(w, RoomItem, lambda i: i.room.kind == "room")
+    w.scene.clearSelection()
+    room.setSelected(True)
+    rot = [h for h in room.resize_handles if isinstance(h, RotateHandle)]
+    assert len(rot) == 1 and rot[0].pos() == QPointF(300, 100)          # yuqori o'rtada
+    # tutqich bilan 30° (markaz 300,250): o'ng tomondagi nuqtadan 30° pastga
+    c = (300, 250)
+    room.rotate_begin(QPointF(c[0] + 100, c[1]))
+    ang = room.rotate_to(QPointF(c[0] + 100 * math.cos(math.radians(30)), c[1] + 100 * math.sin(math.radians(30))))
+    assert ang == pytest.approx(30)
+    room.resize_end()
+    p0 = f.rooms[0].points[0]
+    exp = (c[0] + (-200) * math.cos(math.radians(30)) - (-150) * math.sin(math.radians(30)),
+           c[1] + (-200) * math.sin(math.radians(30)) + (-150) * math.cos(math.radians(30)))
+    assert p0 == (pytest.approx(exp[0]), pytest.approx(exp[1]))
+    # Shift - 15° qadam
+    room.rotate_begin(QPointF(c[0] + 100, c[1]))
+    assert room.rotate_to(QPointF(c[0] + 100, c[1] + 40), snap=True) == 15
+    room.resize_end()
+    w.undo()
+    w.undo()
+    # paneldagi burchak maydoni: istalgan burchak
+    room = _item(w, RoomItem, lambda i: i.room.kind == "room")
+    w.scene.clearSelection()
+    room.setSelected(True)
+    sp = w.rotate_spins[0]
+    sp.setValue(12.5)
+    sp.lineEdit().returnPressed.emit()
+    pts = f.rooms[0].points
+    a = math.degrees(math.atan2(pts[1][1] - pts[0][1], pts[1][0] - pts[0][0]))
+    assert a == pytest.approx(12.5)
+    # eshik ham istalgan burchakka
+    d = w.scene.add_door(QPointF(300, 110))
+    w.scene.clearSelection()
+    d.setSelected(True)
+    before = d.door.angle
+    w.rotate_spins[2].setValue(-7)
+    w.rotate_spins[2].lineEdit().returnPressed.emit()
+    assert ((d.door.angle - before + 180) % 360) - 180 == pytest.approx(-7)
     _close(w)

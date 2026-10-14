@@ -18,16 +18,16 @@ from .. import __version__
 from ..detection import DetectParams, decode_image, detect, encode_jpg, limit_size, read_image
 from ..equipment import BY_KEY, EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
 from ..export import export_dxf, export_image, export_pdf, export_svg
-from ..geometry import merge_rooms, split_room
+from ..geometry import bg_map, merge_rooms, split_room
 from ..model import Building, Door, Equipment, Floor, Room
 from ..render import RenderOptions, equipment_counts, meter_px, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
 from .export_dialog import ExportDialog
 from .home import HomePage, new_building_path, remember, safe_file_name, scan, workspace
-from .canvas import (DOME, DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIR_NAMES, STAIRS, WALL,
+from .canvas import (BG_ALIGN, BG_MOVE, DOME, DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIR_NAMES, STAIRS, WALL,
                      DoorItem, EquipmentItem, FloorScene, FloorView, RoomItem, WallItem)
-from .import_dialog import ImportDialog, RedetectDialog, image_paper_mm_per_px
+from .import_dialog import ImportDialog, RedetectDialog, image_paper_mm_per_px, ratio_presets
 from .review_dialog import ReviewDialog
 from .shortcuts import ShortcutsDialog, display, registry
 from .update_dialog import UpdateBanner, Updater, UpdateSettingsDialog, show_whats_new
@@ -178,6 +178,9 @@ class MainWindow(QMainWindow):
         A(m, "Qayta avtomatik chizish...", self.redetect, None, "floor.redetect")
         A(m, "Kadastr rasmini almashtirish...", self.replace_floor_image, None, "floor.replace_image")
         A(m, "Kadastr rasmini olib tashlash", self.remove_floor_image, None, "floor.remove_image")
+        A(m, "Fonni surish", lambda: self.select_tool(BG_MOVE), None, "floor.bg_move")
+        A(m, "Fonni 2 nuqta bilan moslash", lambda: self.select_tool(BG_ALIGN), None, "floor.bg_align")
+        A(m, "Fonni asl holiga qaytarish", self.reset_bg, None, "floor.bg_reset")
         A(m, "Masshtabni belgilash", lambda: self.select_tool(SCALE), None, "floor.scale")
         A(m, "Xonalarni qayta raqamlash...", self.renumber_rooms, None, "floor.renumber")
         A(m, "Etaj nomini o'zgartirish...", self.rename_floor, "F2", "floor.rename")
@@ -481,6 +484,7 @@ class MainWindow(QMainWindow):
         self.props_title = section_title("Etaj sozlamalari")
         lay.addWidget(self.props_title)
 
+        self.rotate_spins: list[QDoubleSpinBox] = []
         self.props = QStackedWidget()
         self.props.currentChanged.connect(self._on_props_page)
         # 0 - hech narsa tanlanmagan: etaj sozlamalari
@@ -510,6 +514,79 @@ class MainWindow(QMainWindow):
         self.p_symbol.setToolTip("Shu etajdagi barcha AT belgilarining o'lchami (chizmada va eksportda)")
         self.p_symbol.valueChanged.connect(self.on_symbol_scale)
         nl.addWidget(field("AT belgilari o'lchami", self.p_symbol))
+
+        # --- masshtab (nisbat)
+        nl.addWidget(hline())
+        nl.addWidget(section_title("Masshtab"))
+        rr = QWidget()
+        rl_ = QHBoxLayout(rr)
+        rl_.setContentsMargins(0, 0, 0, 0)
+        rl_.setSpacing(6)
+        self.p_ratio = QSpinBox()
+        self.p_ratio.setRange(0, 100000)
+        self.p_ratio.setPrefix("1 : ")
+        self.p_ratio.setSpecialValueText("noma'lum")
+        self.p_ratio.setButtonSymbols(QSpinBox.NoButtons)
+        self.p_ratio.setKeyboardTracking(False)
+        self.p_ratio.setToolTip("Kadastr shtampidagi \"Нисбат\" (masalan 1:200, 1:300, 1:400)")
+        self.p_ratio.valueChanged.connect(self.on_ratio)
+        self.p_ratio_preset = ratio_presets(self.p_ratio)
+        rl_.addWidget(self.p_ratio, 1)
+        rl_.addWidget(self.p_ratio_preset)
+        nl.addWidget(field("Nisbat (shtampdagi \"Нисбат\")", rr))
+        self.p_ratio_hint = QLabel()
+        self.p_ratio_hint.setObjectName("muted")
+        self.p_ratio_hint.setWordWrap(True)
+        nl.addWidget(self.p_ratio_hint)
+        b = QPushButton("Masshtabni 2 nuqta bilan belgilash")
+        b.setObjectName("small")
+        b.clicked.connect(lambda: self.select_tool(SCALE))
+        nl.addWidget(b)
+
+        # --- kadastr foni
+        nl.addWidget(hline())
+        nl.addWidget(section_title("Kadastr foni"))
+        br_ = QHBoxLayout()
+        br_.setSpacing(6)
+        self.b_bg_move = QPushButton("✥ Surish")
+        self.b_bg_move.setObjectName("small")
+        self.b_bg_move.setToolTip("Kadastr rasmini sichqoncha bilan surish")
+        self.b_bg_move.clicked.connect(lambda: self.select_tool(BG_MOVE))
+        self.b_bg_align = QPushButton("⌖ 2 nuqta bilan moslash")
+        self.b_bg_align.setObjectName("small")
+        self.b_bg_align.setToolTip("Rasmdagi 2 nuqtani chizmadagi mos joylariga bosing - fon surilib, burilib va "
+                                   "kattalashib o'z joyiga tushadi")
+        self.b_bg_align.clicked.connect(lambda: self.select_tool(BG_ALIGN))
+        br_.addWidget(self.b_bg_move)
+        br_.addWidget(self.b_bg_align, 1)
+        nl.addLayout(br_)
+        gr = QWidget()
+        gl = QHBoxLayout(gr)
+        gl.setContentsMargins(0, 0, 0, 0)
+        gl.setSpacing(6)
+        self.p_bg_rot = QDoubleSpinBox()
+        self.p_bg_rot.setRange(-180, 180)
+        self.p_bg_rot.setDecimals(1)
+        self.p_bg_rot.setSingleStep(0.5)
+        self.p_bg_rot.setSuffix("°")
+        self.p_bg_rot.setKeyboardTracking(False)
+        self.p_bg_rot.setToolTip("Fonni burish (gradus)")
+        self.p_bg_scale = QDoubleSpinBox()
+        self.p_bg_scale.setRange(5, 2000)
+        self.p_bg_scale.setDecimals(1)
+        self.p_bg_scale.setSingleStep(0.5)
+        self.p_bg_scale.setSuffix(" %")
+        self.p_bg_scale.setKeyboardTracking(False)
+        self.p_bg_scale.setToolTip("Fon o'lchami (chizmaga nisbatan)")
+        self.p_bg_rot.valueChanged.connect(self.on_bg_params)
+        self.p_bg_scale.valueChanged.connect(self.on_bg_params)
+        gl.addWidget(field("Burilish", self.p_bg_rot), 1)
+        gl.addWidget(field("O'lchami", self.p_bg_scale), 1)
+        nl.addWidget(gr)
+        b = QPushButton("Fonni asl holiga qaytarish")
+        b.setObjectName("small")
+        b.clicked.connect(self.reset_bg)
+        nl.addWidget(b)
         nl.addStretch()
         self.props.addWidget(nw)
         # 1 - xona
@@ -554,6 +631,7 @@ class MainWindow(QMainWindow):
         szl.addWidget(QLabel("×"))
         szl.addWidget(self.p_room_h, 1)
         rl.addWidget(field("O'lchami: eni × bo'yi (chegarasi bo'yicha)", sz))
+        rl.addWidget(self._rotate_row())
         ar = QHBoxLayout()
         al = QLabel("Maydoni")
         al.setObjectName("fieldLabel")
@@ -638,6 +716,7 @@ class MainWindow(QMainWindow):
         lr.addWidget(self.p_wall_len)
         wl.addLayout(lr)
         wl.addWidget(self.p_wall_count)
+        wl.addWidget(self._rotate_row())
         wl.addStretch()
         self.props.addWidget(ww)
         # 5 - eshik
@@ -661,6 +740,7 @@ class MainWindow(QMainWindow):
             b.clicked.connect(slot)
             br.addWidget(b)
         dl.addLayout(br)
+        dl.addWidget(self._rotate_row())
         hint = QLabel("Eshik devorning qaysi tarafiga bosilsa yoki sudralsa, o'sha tarafga ochiladi. "
                       "Ikki marta bosish - tomonini almashtirish. Chetidagi oq tutqichlar - kengligi.")
         hint.setObjectName("muted")
@@ -897,7 +977,7 @@ class MainWindow(QMainWindow):
             lines.append("<i>Masshtab belgilanmagan (Etaj → Masshtabni belgilash)</i>")
         self.stats.setText("<br>".join(lines))
         self.floor_title.setText(f.name)
-        info = [f"{len(f.rooms)} ta xona"]
+        info = ([f"1:{f.ratio}"] if f.ratio else []) + [f"{len(f.rooms)} ta xona"]
         info.append(f"{total:.0f} m²" if total is not None else "masshtab yo'q")
         self.floor_info.setText("· " + " · ".join(info))
         self.update_hint()
@@ -910,6 +990,7 @@ class MainWindow(QMainWindow):
         self.refresh_stats()
         self.refresh_floor_list()
         self.on_selection()
+        self.refresh_floor_settings()
 
     def restore(self, snapshot):
         if snapshot is None or self.floor is None:
@@ -1002,6 +1083,7 @@ class MainWindow(QMainWindow):
             if self.floor is not None:
                 self._set_quiet(self.p_room_wall, self.floor.wall_m)
                 self._set_quiet(self.p_symbol, round(self.floor.symbol_scale * 100))
+                self.refresh_floor_settings()
             self.props.setCurrentIndex(0)
 
     def fill_room_equipment(self, room):
@@ -1027,6 +1109,33 @@ class MainWindow(QMainWindow):
         self.props.currentWidget().updateGeometry()
         self.props.updateGeometry()
 
+    def _rotate_row(self) -> QWidget:
+        """Istalgan burchakka burish: burchak maydoni va "Burish" tugmasi (tanlanganlarga qo'llanadi)."""
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        sp = QDoubleSpinBox()
+        sp.setRange(-360, 360)
+        sp.setDecimals(1)
+        sp.setSingleStep(5)
+        sp.setSuffix("°")
+        sp.setValue(float(self.settings.value("rotate/last", 45.0)))
+        sp.setToolTip("Musbat - soat strelkasi bo'yicha, manfiy - teskari")
+        b = QPushButton("Burish")
+        b.setObjectName("small")
+
+        def go():
+            if sp.value():
+                self.settings.setValue("rotate/last", sp.value())
+                self.rotate_selected(sp.value())
+        b.clicked.connect(go)
+        sp.lineEdit().returnPressed.connect(go)
+        lay.addWidget(sp, 1)
+        lay.addWidget(b)
+        self.rotate_spins.append(sp)
+        return field("Burish (istalgan burchak)", w)
+
     @staticmethod
     def _size_spin(lo: float = 0.3, hi: float = 500.0, step: float = 0.1) -> QDoubleSpinBox:
         sp = QDoubleSpinBox()
@@ -1037,6 +1146,64 @@ class MainWindow(QMainWindow):
         sp.setKeyboardTracking(False)
         sp.setButtonSymbols(QDoubleSpinBox.NoButtons)
         return sp
+
+    def refresh_floor_settings(self):
+        f = self.floor
+        if f is None:
+            return
+        self._set_quiet(self.p_ratio, f.ratio)
+        if f.scale_m_per_px:
+            txt = f"1 piksel = {f.scale_m_per_px * 100:.2f} sm"
+            if not f.paper_mm_per_px:
+                txt += ". Qog'oz o'lchami noma'lum: nisbat o'zgarsa masshtabni 2 nuqta bilan qayta belgilang."
+        elif f.paper_mm_per_px:
+            txt = "Nisbatni kiriting - maydonlar m² da hisoblanadi."
+        else:
+            txt = ("Rasmda qog'oz o'lchami yo'q (telefon rasmi). Masshtabni 2 nuqta bilan belgilang - "
+                   "keyin nisbatni o'zgartirsangiz o'zi qayta hisoblanadi.")
+        self.p_ratio_hint.setText(txt)
+        has_bg = bool(f.image)
+        for wdg in (self.b_bg_move, self.b_bg_align, self.p_bg_rot, self.p_bg_scale):
+            wdg.setEnabled(has_bg)
+        self._set_quiet(self.p_bg_rot, f.bg_rot)
+        self._set_quiet(self.p_bg_scale, f.bg_scale * 100)
+
+    def on_ratio(self, ratio: int):
+        f = self.floor
+        if f is None or ratio == f.ratio:
+            return
+        old = f.scale_m_per_px
+        if not f.paper_mm_per_px and f.ratio and old and ratio:
+            # qog'oz o'lchami noma'lum, lekin masshtab avval belgilangan - nisbatlar farqi bo'yicha
+            f.paper_mm_per_px = old * 1000 / f.ratio
+        f.apply_ratio(ratio)
+        self.histories[f.id].push(f)
+        self.show_floor(f, keep_view=True)
+        self.set_dirty()
+        if f.scale_m_per_px and f.scale_m_per_px != old:
+            self.statusBar().showMessage(f"Masshtab 1:{ratio} bo'yicha qayta hisoblandi.", 5000)
+
+    def on_bg_params(self):
+        f = self.floor
+        if f is None:
+            return
+        rot, sc = self.p_bg_rot.value(), self.p_bg_scale.value() / 100
+        if abs(rot - f.bg_rot) < 1e-9 and abs(sc - f.bg_scale) < 1e-9:
+            return
+        f.bg_rot, f.bg_scale = rot, sc
+        self.scene.update_bg()
+        self.histories[f.id].push(f)
+        self.set_dirty()
+
+    def reset_bg(self):
+        f = self.floor
+        if f is None or f.bg_identity():
+            return
+        f.reset_bg()
+        self.scene.update_bg()
+        self.histories[f.id].push(f)
+        self.set_dirty()
+        self.refresh_floor_settings()
 
     def on_symbol_scale(self, percent: int):
         if self.floor is None or abs(self.floor.symbol_scale * 100 - percent) < 0.5:
@@ -1302,6 +1469,8 @@ class MainWindow(QMainWindow):
         if not ok:
             return
         self.floor.scale_m_per_px = m / px
+        if self.floor.ratio and not self.floor.paper_mm_per_px:
+            self.floor.paper_mm_per_px = self.floor.scale_m_per_px * 1000 / self.floor.ratio
         self.histories[self.floor.id].push(self.floor)
         self.show_floor(self.floor, keep_view=True)
         self.set_dirty()
@@ -1386,6 +1555,7 @@ class MainWindow(QMainWindow):
             h, w = corrected.shape[:2]
             floor = Floor(name=dlg.name.text().strip() or self.next_floor_name(),
                           image=encode_jpg(corrected), width=w, height=h, scale_m_per_px=mpp)
+            self._store_paper(floor, dlg, cropped, corrected)
             msg = "Etaj qo'shildi."
             if dlg.auto.isChecked():
                 msg = self.apply_detection(floor, corrected, dlg.params_w.params(mpp), keep_eq=False,
@@ -1401,9 +1571,29 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(300, self.open_review)
         return True
 
+    @staticmethod
+    def _store_paper(floor: Floor, dlg, cropped, corrected) -> None:
+        """Import oynasidagi qog'oz o'lchami va nisbatni etajga yozish (keyin nisbatni o'zgartirish uchun)."""
+        if dlg.paper_mm_per_px:
+            floor.paper_mm_per_px = dlg.paper_mm_per_px * cropped.shape[1] / corrected.shape[1]
+        if dlg.scale.value() > 0:
+            floor.ratio = dlg.scale.value()
+
     def apply_detection(self, floor: Floor, img, params: DetectParams, keep_eq: bool,
                         numbering: bool = True) -> str:
         res = detect(img, params)
+        k = floor.width / max(1, img.shape[1])
+        if abs(k - 1) > 1e-9 or not floor.bg_identity():
+            # rasm piksellari -> chizma koordinatalari (fon surilgan/burilgan bo'lsa ham)
+            def mp(x, y):
+                return bg_map(floor, x * k, y * k)
+            for r in res.rooms:
+                r.points = [mp(x, y) for x, y in r.points]
+            res.marks = [mp(x, y) for x, y in res.marks]
+            for d in res.doors:
+                d.x, d.y = mp(d.x, d.y)
+                d.angle += floor.bg_rot
+                d.width *= k * floor.bg_scale
         floor.rooms = [Room(points=r.points, kind=r.kind, name=str(i) if numbering else "", shape=r.shape)
                        for i, r in enumerate(res.rooms, 1)]
         # doira binolar kirishlaridagi eshiklar (mavjud eshik bilan ustma-ust tushmasa)
@@ -1465,8 +1655,10 @@ class MainWindow(QMainWindow):
                 f.scale_content(w / old_w)
                 f.width, f.height = w, h
                 f.image = encode_jpg(corrected)
+                f.reset_bg()
                 if mpp:
                     f.scale_m_per_px = mpp
+                self._store_paper(f, dlg, cropped, corrected)
                 msg = f"\"{f.name}\" kadastr rasmi almashtirildi."
                 if dlg.auto.isChecked():
                     msg = self.apply_detection(f, corrected, dlg.params_w.params(mpp), keep_eq=True,

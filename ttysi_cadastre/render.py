@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF, QTransform
 
 from .equipment import EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
 from .geometry import door_cut, door_lines, nearest_wall, stair_lines
@@ -126,12 +126,26 @@ def draw_dome(p: QPainter, room, floor: Floor) -> None:
     p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in dome_ring(room, floor)]))
 
 
+def bg_qtransform(floor: Floor, image_width: int) -> QTransform:
+    """Fon rasmi piksellari -> chizma koordinatalari (etaj kengligiga keltirish + moslash)."""
+    k = floor.width / max(1, image_width)
+    cx, cy = floor.width / 2, floor.height / 2
+    s = QTransform()
+    s.translate(cx + floor.bg_dx, cy + floor.bg_dy)
+    s.rotate(floor.bg_rot)
+    s.scale(floor.bg_scale, floor.bg_scale)
+    s.translate(-cx, -cy)
+    return QTransform.fromScale(k, k) * s
+
+
 def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImage | None = None) -> None:
     """Etajni uning o'z koordinatalarida (piksellarda) chizadi."""
     if opts.background and background is not None and not background.isNull():
+        p.save()
         p.setOpacity(0.35)
-        p.drawImage(QRectF(0, 0, floor.width, floor.height), background)
-        p.setOpacity(1.0)
+        p.setTransform(bg_qtransform(floor, background.width()), True)
+        p.drawImage(QPointF(0, 0), background)
+        p.restore()
     ww = wall_width(floor)
     # avval to'ldirish, keyin devorlar - qo'shni xonalar devorlari ustma-ust tushadi
     for room in floor.rooms:
