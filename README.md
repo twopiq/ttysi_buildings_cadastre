@@ -120,7 +120,18 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
      ko'chirish mumkin. O'ng tugma menyusida: bir yoki ikki tabaqali, ochilish tomoni, sharnir tomoni,
      kengligi (0.8–1.8 m);
    - `Z` — **zina**: maydonini to'rtburchak qilib torting. Ichida pog'onalar va yo'nalish strelkasi
-     chiziladi.
+     chiziladi. **Yo'nalishi** (strelka — ko'tarilish tomoni) qo'lda o'zgartiriladi: o'ngdagi panelda
+     "Zina yo'nalishi" (→ ↓ ← ↑ yoki avtomatik), **↻ 90°** tugmasi yoki o'ng tugma menyusi;
+   - **Eshik ochilish tomoni**: eshikni devorning qaysi tarafiga bossangiz (yoki sudrab o'tkazsangiz),
+     o'sha tarafga ochiladi. Ikki marta bosish — tomonini almashtirish. **Kengligi**: eshik chetidagi
+     oq tutqichlarni sudrang yoki o'ngdagi panelda aniq qiymat (0.5–4 m) kiriting;
+   - **O'lchamni o'zgartirish**: xona, zina yoki devor tanlanganda atrofida 8 ta oq tutqich chiqadi —
+     burchakdagisi ikki tomonga, qirradagisi bir tomonga cho'zadi (qarama-qarshi tomon joyida qoladi,
+     `Shift` — nisbatni saqlash). Ko'k nuqtalar esa alohida burchakni suradi. Aniq o'lcham: o'ngdagi
+     panelda "eni × bo'yi" (metrda);
+   - **Kattalashtirish / kichiklashtirish**: `Ctrl+Alt+=` / `Ctrl+Alt+-` — tanlangan elementlar 10%
+     ga (o'z markazi atrofida; eshik — kengligi). Faqat AT belgilari tanlangan bo'lsa — etajdagi
+     belgilar o'lchami o'zgaradi (hech narsa tanlanmaganda paneldagi "AT belgilari o'lchami").
    - **Joyida aylantirish:** tanlangan xona, zina yoki eshik o'z markazi atrofida buriladi. `]` —
      90° o'ngga, `[` — 90° chapga, `Ctrl+Shift+R` — istalgan burchak. O'ng tugma menyusida esa
      "Aylantirish" bo'limi bor.

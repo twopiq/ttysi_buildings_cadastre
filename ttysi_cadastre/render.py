@@ -38,7 +38,7 @@ def label_px(floor: Floor) -> int:
 
 
 def symbol_radius(floor: Floor) -> float:
-    return meter_px(floor) * 0.55
+    return meter_px(floor) * 0.55 * (getattr(floor, "symbol_scale", 1.0) or 1.0)
 
 
 def draw_equipment_symbol(p: QPainter, code: str, center: QPointF, r: float, planned: bool = False) -> None:
@@ -107,7 +107,7 @@ def draw_stairs(p: QPainter, room, floor: Floor) -> None:
     """Zina: pog'onalar (0.3 m) va yo'nalish strelkasi."""
     p.setPen(QPen(QColor("#616161"), max(1.0, wall_width(floor) * 0.18)))
     p.setBrush(Qt.NoBrush)
-    for ln in stair_lines(room.points, meter_px(floor) * 0.3):
+    for ln in stair_lines(room.points, meter_px(floor) * 0.3, room.direction):
         p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in ln]))
 
 

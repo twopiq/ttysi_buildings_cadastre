@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QGraphicsItem, QInputDialog,
                                QGraphicsView, QMenu)
 
 from ..equipment import ROOM_KINDS, get_type
-from ..geometry import nearest_wall, rotate_points
+from ..geometry import STAIR_DIRECTIONS, auto_stair_direction, nearest_wall, rotate_points
 from ..model import Door, Equipment, Floor, Room, Wall
 from ..render import (door_wall_thickness, draw_door, draw_equipment_symbol, draw_stairs, label_px,
                       meter_px, room_label, symbol_radius, wall_width)
@@ -78,7 +78,144 @@ class VertexHandle(QGraphicsRectItem):
             self.room_item.remove_vertex(self.index)
 
 
-class RoomItem(QGraphicsPolygonItem):
+STAIR_NAMES = {"": "Avtomatik", "right": "→  O'ngga", "down": "↓  Pastga", "left": "←  Chapga",
+               "up": "↑  Yuqoriga"}
+
+
+def door_flip_for(door: Door, x: float, y: float) -> bool:
+    """Bosilgan nuqta devorning qaysi tomonida: eshik o'sha tomonga ochiladi."""
+    a = math.radians(door.angle)
+    return ((x - door.x) * -math.sin(a) + (y - door.y) * math.cos(a)) < 0
+
+
+class ResizeHandle(QGraphicsRectItem):
+    """Element chegarasi burchagi/qirrasidagi tutqich: sudrab elementni kattalashtirish/kichiklashtirish.
+
+    Burchak tutqichi ikki tomonga, qirra tutqichi bir tomonga cho'zadi; Shift - nisbatni saqlash.
+    Burchak tutqichlari burchak nuqtalari bilan ustma-ust tushmasligi uchun biroz tashqariga chiqarilgan.
+    """
+
+    SIZE = 9
+    OFFSET = 9
+    CURSORS = {(-1, -1): Qt.SizeFDiagCursor, (1, 1): Qt.SizeFDiagCursor, (1, -1): Qt.SizeBDiagCursor,
+               (-1, 1): Qt.SizeBDiagCursor, (0, -1): Qt.SizeVerCursor, (0, 1): Qt.SizeVerCursor,
+               (-1, 0): Qt.SizeHorCursor, (1, 0): Qt.SizeHorCursor}
+
+    def __init__(self, target, role: tuple[int, int]):
+        s, o = self.SIZE, self.OFFSET
+        hx, hy = role
+        super().__init__(-s / 2 + hx * o, -s / 2 + hy * o, s, s, target)
+        self.target = target
+        self.role = role
+        self.setBrush(QColor("white"))
+        pen = QPen(QColor("#1565c0"), 1.5)
+        self.setPen(pen)
+        self.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        self.setCursor(self.CURSORS[role])
+        self.setZValue(11)
+        self.setToolTip("Sudrab o'lchamini o'zgartiring (Shift - nisbatni saqlash)")
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return super().mousePressEvent(event)
+        self.target.resize_begin()
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        self.target.resize_to(self.role, event.scenePos(), bool(event.modifiers() & Qt.ShiftModifier))
+
+    def mouseReleaseEvent(self, event):
+        self.target.resize_end()
+
+
+class Resizable:
+    """Xona/zina va devor uchun umumiy: chegara bo'yicha o'lchamni o'zgartirish (tutqichlar va aniq qiymat)."""
+
+    resize_handles: list = []
+
+    def points_list(self) -> list[tuple[float, float]]:
+        raise NotImplementedError
+
+    def set_points(self, pts: list[tuple[float, float]]) -> None:
+        raise NotImplementedError
+
+    def bbox(self) -> tuple[float, float, float, float]:
+        pts = self.points_list()
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        return min(xs), min(ys), max(xs), max(ys)
+
+    def show_resize(self, on: bool):
+        for h in getattr(self, "resize_handles", []):
+            h.setParentItem(None)
+            if h.scene():
+                h.scene().removeItem(h)
+        self.resize_handles = []
+        if not on:
+            return
+        x0, y0, x1, y1 = self.bbox()
+        for hx in (-1, 0, 1):
+            for hy in (-1, 0, 1):
+                if (hx, hy) == (0, 0):
+                    continue
+                if (hx and x1 - x0 < 1) or (hy and y1 - y0 < 1):
+                    continue            # to'g'ri devor: faqat uzunligi bo'yicha
+                h = ResizeHandle(self, (hx, hy))
+                self.resize_handles.append(h)
+        self.place_resize()
+
+    def place_resize(self):
+        x0, y0, x1, y1 = self.bbox()
+        for h in getattr(self, "resize_handles", []):
+            hx, hy = h.role
+            h.setPos(QPointF((x0, (x0 + x1) / 2, x1)[hx + 1], (y0, (y0 + y1) / 2, y1)[hy + 1]))
+
+    def resize_begin(self):
+        self.commit(emit=False)
+        self._orig = self.points_list()
+        self._obox = self.bbox()
+        for h in self.handles:          # burchak tutqichlari sudrash vaqtida yashiriladi
+            h.setParentItem(None)
+            if h.scene():
+                h.scene().removeItem(h)
+        self.handles = []
+
+    def resize_to(self, role, p: QPointF, keep: bool = False):
+        if not getattr(self, "_orig", None):
+            self.resize_begin()
+        x0, y0, x1, y1 = self._obox
+        hx, hy = role
+        ax = x1 if hx == -1 else x0
+        ay = y1 if hy == -1 else y0
+        sx = sy = 1.0
+        if hx:
+            edge = x0 if hx == -1 else x1
+            sx = max(0.05, (p.x() - ax) / (edge - ax)) if abs(edge - ax) > 1e-6 else 1.0
+        if hy:
+            edge = y0 if hy == -1 else y1
+            sy = max(0.05, (p.y() - ay) / (edge - ay)) if abs(edge - ay) > 1e-6 else 1.0
+        if keep and hx and hy:
+            sx = sy = max(sx, sy)
+        self.set_points([(ax + (x - ax) * sx, ay + (y - ay) * sy) for x, y in self._orig])
+        self.place_resize()
+
+    def resize_end(self):
+        self._orig = None
+        self.commit()
+        self.show_handles(self.isSelected())
+
+    def scale_by(self, sx: float, sy: float | None = None, anchor: str = "center"):
+        """Markaz (yoki chap-yuqori burchak) atrofida masshtablash - tugmalar va aniq o'lcham uchun."""
+        sy = sx if sy is None else sy
+        self.commit(emit=False)
+        x0, y0, x1, y1 = self.bbox()
+        ax, ay = ((x0 + x1) / 2, (y0 + y1) / 2) if anchor == "center" else (x0, y0)
+        self.set_points([(ax + (x - ax) * sx, ay + (y - ay) * sy) for x, y in self.points_list()])
+        self.commit(emit=False)
+        if self.isSelected():
+            self.show_handles(True)
+
+
+class RoomItem(Resizable, QGraphicsPolygonItem):
     def __init__(self, room: Room, floor: Floor):
         super().__init__(QPolygonF([QPointF(x, y) for x, y in room.points]))
         self.room = room
@@ -109,7 +246,7 @@ class RoomItem(QGraphicsPolygonItem):
         if self.room.kind == "stairs":
             pts = [(q.x(), q.y()) for q in self.polygon()]
             painter.save()
-            draw_stairs(painter, Room(points=pts, kind="stairs"), self.floor)
+            draw_stairs(painter, Room(points=pts, kind="stairs", direction=self.room.direction), self.floor)
             painter.restore()
 
     def update_label(self):
@@ -126,12 +263,33 @@ class RoomItem(QGraphicsPolygonItem):
             self.show_handles(bool(value))
         return super().itemChange(change, value)
 
+    def points_list(self):
+        off = self.pos()
+        return [(q.x() + off.x(), q.y() + off.y()) for q in self.polygon()]
+
+    def set_points(self, pts):
+        self.setPos(0, 0)
+        self.setPolygon(QPolygonF([QPointF(x, y) for x, y in pts]))
+        self.update_label()
+
+    def set_direction(self, direction: str):
+        self.room.direction = direction
+        self.update()
+
+    def cycle_direction(self) -> str:
+        """Zina yo'nalishini soat strelkasi bo'yicha 90° buradi."""
+        cur = self.room.direction or auto_stair_direction(self.room.points)
+        nxt = STAIR_DIRECTIONS[(STAIR_DIRECTIONS.index(cur) + 1) % 4]
+        self.set_direction(nxt)
+        return nxt
+
     def show_handles(self, on: bool):
         for h in self.handles:
             h.setParentItem(None)
             if h.scene():
                 h.scene().removeItem(h)
         self.handles = []
+        self.show_resize(on)
         if on:
             for i, p in enumerate(self.polygon()):
                 h = VertexHandle(self, i)
@@ -151,6 +309,7 @@ class RoomItem(QGraphicsPolygonItem):
         poly[i] = pos
         self.setPolygon(poly)
         self.update_label()
+        self.place_resize()
 
     def remove_vertex(self, i: int):
         poly = self.polygon()
@@ -214,6 +373,14 @@ class RoomItem(QGraphicsPolygonItem):
             a.setCheckable(True)
             a.setChecked(k == self.room.kind)
             kinds[a] = k
+        dirs = {}
+        if self.room.kind == "stairs":
+            dm = menu.addMenu("Zina yo'nalishi (ko'tarilish)")
+            for d, name in STAIR_NAMES.items():
+                a = dm.addAction(name)
+                a.setCheckable(True)
+                a.setChecked(d == self.room.direction)
+                dirs[a] = d
         add_v = menu.addAction("Shu yerga burchak qo'shish")
         rotations = add_rotate_menu(menu)
         menu.addSeparator()
@@ -226,6 +393,11 @@ class RoomItem(QGraphicsPolygonItem):
                 it.room.kind = kinds[act]
                 it.refresh_style()
             scene.changed_model.emit()
+        elif act in dirs:
+            for it in scene.selected_rooms():
+                if it.room.kind == "stairs":
+                    it.set_direction(dirs[act])
+            scene.changed_model.emit()
         elif act == add_v:
             self.insert_vertex_at(event.scenePos())
         elif act in rotations:
@@ -236,7 +408,7 @@ class RoomItem(QGraphicsPolygonItem):
             scene.delete_selected()
 
 
-class WallItem(QGraphicsPathItem):
+class WallItem(Resizable, QGraphicsPathItem):
     """Mustaqil devor: siniq chiziq, burchaklari tahrirlanadi, qalinligi tanlanadi."""
 
     THICKNESS_M = (0.12, 0.25, 0.38, 0.51, 0.64)
@@ -270,6 +442,15 @@ class WallItem(QGraphicsPathItem):
         stroker.setWidth(self.wall.thickness + 8)
         return stroker.createStroke(self.path())
 
+    def points_list(self):
+        off = self.pos()
+        return [(q.x() + off.x(), q.y() + off.y()) for q in self.pts]
+
+    def set_points(self, pts):
+        self.setPos(0, 0)
+        self.pts = [QPointF(x, y) for x, y in pts]
+        self.rebuild()
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemSelectedHasChanged:
             self.rebuild()
@@ -282,6 +463,7 @@ class WallItem(QGraphicsPathItem):
             if h.scene():
                 h.scene().removeItem(h)
         self.handles = []
+        self.show_resize(on)
         if on:
             for i, q in enumerate(self.pts):
                 h = VertexHandle(self, i)
@@ -297,6 +479,7 @@ class WallItem(QGraphicsPathItem):
     def move_vertex(self, i: int, pos: QPointF):
         self.pts[i] = QPointF(pos)
         self.rebuild()
+        self.place_resize()
 
     def remove_vertex(self, i: int):
         if len(self.pts) <= 2:
@@ -376,10 +559,46 @@ class WallItem(QGraphicsPathItem):
             scene.delete_selected()
 
 
+class DoorWidthHandle(QGraphicsRectItem):
+    """Eshik chetidagi tutqich: devor bo'ylab sudrab eshik kengligini o'zgartirish."""
+
+    SIZE = 9
+
+    def __init__(self, door_item: "DoorItem", side: int):
+        s = self.SIZE
+        super().__init__(-s / 2, -s / 2, s, s, door_item)
+        self.door_item = door_item
+        self.side = side
+        self.setBrush(QColor("white"))
+        self.setPen(QPen(QColor("#1565c0"), 1.5))
+        self.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        self.setCursor(Qt.SizeHorCursor)
+        self.setZValue(11)
+        self.setToolTip("Sudrab eshik kengligini o'zgartiring")
+
+    def mousePressEvent(self, event):
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        d = self.door_item.door
+        a = math.radians(d.angle)
+        p = event.scenePos()
+        along = (p.x() - d.x) * math.cos(a) + (p.y() - d.y) * math.sin(a)
+        self.door_item.set_width(abs(along) * 2)
+
+    def mouseReleaseEvent(self, event):
+        if self.door_item.scene():
+            self.door_item.scene().changed_model.emit()
+
+
 class DoorItem(QGraphicsItem):
-    """Eshik: sudralganda eng yaqin devorga yopishadi va uning yo'nalishini oladi."""
+    """Eshik: sudralganda eng yaqin devorga yopishadi va uning yo'nalishini oladi.
+
+    Ochilish tomoni - devorning qaysi tarafiga bosilgan/sudralgan bo'lsa, o'sha taraf.
+    """
 
     WIDTHS = (0.8, 0.9, 1.0, 1.2, 1.5, 1.8)
+    MIN_M, MAX_M = 0.5, 4.0
 
     def __init__(self, door: Door, floor: Floor):
         super().__init__()
@@ -390,7 +609,36 @@ class DoorItem(QGraphicsItem):
         self.setFlags(QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable
                       | QGraphicsItem.ItemSendsGeometryChanges)
         self.setZValue(3)
-        self.setToolTip("Eshik. O'ng tugma - turi, ochilish tomoni, kengligi")
+        self.setToolTip("Eshik. Devorning qaysi tomoniga sudrasangiz, o'sha tomonga ochiladi. "
+                        "Chetlaridagi tutqichlar - kengligi. O'ng tugma - turi, sharnir tomoni")
+        self.width_handles: list[DoorWidthHandle] = []
+
+    def set_width(self, width_px: float):
+        m = meter_px(self.floor)
+        self.prepareGeometryChange()
+        self.door.width = min(self.MAX_M * m, max(self.MIN_M * m, width_px))
+        self.place_width_handles()
+        self.update()
+
+    def set_flip(self, flip: bool):
+        if flip != self.door.flip:
+            self.prepareGeometryChange()
+            self.door.flip = flip
+            self.update()
+
+    def show_width_handles(self, on: bool):
+        for h in self.width_handles:
+            h.setParentItem(None)
+            if h.scene():
+                h.scene().removeItem(h)
+        self.width_handles = [DoorWidthHandle(self, s) for s in (-1, 1)] if on else []
+        self.place_width_handles()
+
+    def place_width_handles(self):
+        a = math.radians(self.door.angle)
+        for h in self.width_handles:
+            r = self.door.width / 2 * h.side
+            h.setPos(r * math.cos(a), r * math.sin(a))
 
     def boundingRect(self):
         r = self.door.width * 1.15 + self.wall
@@ -419,9 +667,20 @@ class DoorItem(QGraphicsItem):
             snap = nearest_wall(self.floor.rooms, value.x(), value.y(), self.floor.walls)
             if snap and snap[3] < self.door.width:
                 self.prepareGeometryChange()
+                old_angle = self.door.angle
                 self.door.angle = snap[2]
+                # devor o'qi yo'nalishi teskari bo'lsa (180°), tomon saqlanadi; kursor devorning
+                # boshqa tarafiga o'tsa (yetarlicha uzoq) - eshik o'sha tarafga ochiladi
+                if abs(((snap[2] - old_angle + 180) % 360) - 180) > 90:
+                    self.door.flip = not self.door.flip
+                if snap[3] > self.wall * 0.6:
+                    probe = replace(self.door, x=snap[0], y=snap[1])
+                    self.door.flip = door_flip_for(probe, value.x(), value.y())
+                self.place_width_handles()
                 self.update()
                 return QPointF(snap[0], snap[1])
+        if change == QGraphicsItem.ItemSelectedHasChanged:
+            self.show_width_handles(bool(value))
         return super().itemChange(change, value)
 
     def commit(self):
@@ -432,7 +691,14 @@ class DoorItem(QGraphicsItem):
         """Eshikni o'z markazi atrofida aylantiradi (masalan devor burchagida yoki qiya devorda)."""
         self.prepareGeometryChange()
         self.door.angle = (self.door.angle + angle) % 360
+        self.place_width_handles()
         self.update()
+
+    def mouseDoubleClickEvent(self, event):
+        """Ikki marta bosish - ochilish tomonini almashtirish."""
+        self.set_flip(not self.door.flip)
+        if self.scene():
+            self.scene().changed_model.emit()
 
     def contextMenuEvent(self, event):
         scene: FloorScene = self.scene()
@@ -446,7 +712,7 @@ class DoorItem(QGraphicsItem):
         double.setCheckable(True)
         single.setChecked(self.door.leaves == 1)
         double.setChecked(self.door.leaves == 2)
-        flip = menu.addAction("Ochilish tomonini almashtirish")
+        flip = menu.addAction("Ochilish tomonini almashtirish (ichkariga/tashqariga)")
         mirror = menu.addAction("Sharnir tomonini almashtirish")
         mirror.setEnabled(self.door.leaves == 1)
         rotations = add_rotate_menu(menu)
@@ -480,6 +746,7 @@ class DoorItem(QGraphicsItem):
             self.door.mirror = not self.door.mirror
         elif act in widths:
             self.door.width = widths[act]
+        self.place_width_handles()
         self.update()
         scene.changed_model.emit()
 
@@ -668,6 +935,8 @@ class FloorScene(QGraphicsScene):
         snap = nearest_wall(self.floor.rooms, pos.x(), pos.y(), self.floor.walls)
         if snap and snap[3] < width * 1.5:
             door.x, door.y, door.angle = snap[0], snap[1], snap[2]
+            # devorning qaysi tarafiga bosilgan bo'lsa - eshik o'sha tarafga ochiladi
+            door.flip = door_flip_for(door, pos.x(), pos.y())
         self.floor.doors.append(door)
         item = DoorItem(door, self.floor)
         self.addItem(item)
@@ -774,7 +1043,8 @@ class FloorView(QGraphicsView):
             ROOM_POLY: "Xona chizish: burchaklarni ketma-ket bosing. Enter / ikki marta bosish / birinchi nuqta - tugatish. Esc - bekor.",
             ROOM_RECT: "To'rtburchak xona: sichqonchani bosib, torting.",
             WALL: "Devor: burchaklarni ketma-ket bosing. Enter / ikki marta bosish - tugatish. Esc - bekor.",
-            DOOR: "Eshik: devorga bosing (eng yaqin devorga yopishadi). O'ng tugma - turi, tomoni, kengligi.",
+            DOOR: "Eshik: devorning ochilishi kerak bo'lgan tarafiga bosing. Kengligi - chetidagi tutqichlar; "
+                  "ikki marta bosish - tomonini almashtirish.",
             STAIRS: "Zina: sichqonchani bosib, zina maydonini torting.",
             EQUIP: f"{get_type(self.equip_code).name}: joyini bosing.",
             SPLIT: "Xonani bo'lish: bo'lish chizig'ining ikki nuqtasini bosing.",

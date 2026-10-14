@@ -11,7 +11,7 @@ from PySide6.QtPdf import QPdfDocument
 from PySide6.QtGui import QAction, QActionGroup, QImage, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                                QFileDialog, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSlider,
+                               QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
                                QStackedWidget, QToolButton, QVBoxLayout, QWidget)
 
 from .. import __version__
@@ -25,8 +25,8 @@ from ..report import export_excel
 from ..updater import is_frozen
 from .export_dialog import ExportDialog
 from .home import HomePage, new_building_path, remember, safe_file_name, scan, workspace
-from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, WALL, EquipmentItem,
-                     FloorScene, FloorView, RoomItem, WallItem)
+from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIR_NAMES, STAIRS, WALL, DoorItem,
+                     EquipmentItem, FloorScene, FloorView, RoomItem, WallItem)
 from .import_dialog import ImportDialog, RedetectDialog, image_paper_mm_per_px
 from .review_dialog import ReviewDialog
 from .shortcuts import ShortcutsDialog, display, registry
@@ -155,6 +155,9 @@ class MainWindow(QMainWindow):
         A(m, "Hammasini tanlash", self.select_all, QKeySequence.SelectAll, "edit.select_all")
         A(m, "Jihoz holatini almashtirish (mavjud / kerak)", self.toggle_status, "Ctrl+K", "edit.toggle_status")
         A(m, "Tanlangan xonalarni birlashtirish", self.merge_selected, "Ctrl+M", "edit.merge")
+        sm = m.addMenu("O'lchami")
+        A(sm, "Kattalashtirish (+10%)", lambda: self.scale_selected(1.1), "Ctrl+Alt+=", "edit.grow")
+        A(sm, "Kichiklashtirish (-10%)", lambda: self.scale_selected(1 / 1.1), "Ctrl+Alt+-", "edit.shrink")
         tm = m.addMenu("Devor qalinligi")
         A(tm, "Qalinlashtirish (+5 sm)", lambda: self.change_wall_thickness(0.05), "Alt+Up", "wall.thicker")
         A(tm, "Yupqalashtirish (-5 sm)", lambda: self.change_wall_thickness(-0.05), "Alt+Down", "wall.thinner")
@@ -496,6 +499,14 @@ class MainWindow(QMainWindow):
         self.scene.new_wall_m = self.p_new_wall.value()
         nl.addWidget(field("Xona devorlari qalinligi", self.p_room_wall))
         nl.addWidget(field("Yangi devorlar qalinligi", self.p_new_wall))
+        self.p_symbol = QSpinBox()
+        self.p_symbol.setRange(30, 400)
+        self.p_symbol.setSingleStep(10)
+        self.p_symbol.setSuffix(" %")
+        self.p_symbol.setKeyboardTracking(False)
+        self.p_symbol.setToolTip("Shu etajdagi barcha AT belgilarining o'lchami (chizmada va eksportda)")
+        self.p_symbol.valueChanged.connect(self.on_symbol_scale)
+        nl.addWidget(field("AT belgilari o'lchami", self.p_symbol))
         nl.addStretch()
         self.props.addWidget(nw)
         # 1 - xona
@@ -514,6 +525,32 @@ class MainWindow(QMainWindow):
         self.p_room_area.setStyleSheet("font-weight: 600")
         rl.addWidget(field("Raqami / nomi", self.p_room_name))
         rl.addWidget(field("Turi", self.p_room_kind))
+        self.p_stairs = QWidget()
+        sl = QHBoxLayout(self.p_stairs)
+        sl.setContentsMargins(0, 0, 0, 0)
+        self.p_stairs_dir = QComboBox()
+        for d, name in STAIR_NAMES.items():
+            self.p_stairs_dir.addItem(name, d)
+        self.p_stairs_dir.activated.connect(self.on_stairs_dir)
+        turn = QPushButton("↻ 90°")
+        turn.setObjectName("small")
+        turn.setToolTip("Zina yo'nalishini soat strelkasi bo'yicha burish")
+        turn.clicked.connect(self.turn_stairs)
+        sl.addWidget(self.p_stairs_dir, 1)
+        sl.addWidget(turn)
+        rl.addWidget(field("Zina yo'nalishi (strelka - ko'tarilish)", self.p_stairs))
+        sz = QWidget()
+        szl = QHBoxLayout(sz)
+        szl.setContentsMargins(0, 0, 0, 0)
+        szl.setSpacing(6)
+        self.p_room_w = self._size_spin()
+        self.p_room_h = self._size_spin()
+        self.p_room_w.valueChanged.connect(self.on_room_size)
+        self.p_room_h.valueChanged.connect(self.on_room_size)
+        szl.addWidget(self.p_room_w, 1)
+        szl.addWidget(QLabel("×"))
+        szl.addWidget(self.p_room_h, 1)
+        rl.addWidget(field("O'lchami: eni × bo'yi (chegarasi bo'yicha)", sz))
         ar = QHBoxLayout()
         al = QLabel("Maydoni")
         al.setObjectName("fieldLabel")
@@ -600,6 +637,34 @@ class MainWindow(QMainWindow):
         wl.addWidget(self.p_wall_count)
         wl.addStretch()
         self.props.addWidget(ww)
+        # 5 - eshik
+        dw = QWidget()
+        dl = QVBoxLayout(dw)
+        dl.setContentsMargins(0, 0, 0, 0)
+        dl.setSpacing(12)
+        self.p_door_w = self._size_spin(0.5, 4.0, 0.05)
+        self.p_door_w.valueChanged.connect(self.on_door_props)
+        self.p_door_leaves = QComboBox()
+        self.p_door_leaves.addItem("Bir tabaqali", 1)
+        self.p_door_leaves.addItem("Ikki tabaqali", 2)
+        self.p_door_leaves.activated.connect(self.on_door_props)
+        dl.addWidget(field("Kengligi", self.p_door_w))
+        dl.addWidget(field("Turi", self.p_door_leaves))
+        br = QHBoxLayout()
+        br.setSpacing(6)
+        for text, slot in (("⇅ Ochilish tomoni", self.flip_door), ("⇆ Sharnir tomoni", self.mirror_door)):
+            b = QPushButton(text)
+            b.setObjectName("small")
+            b.clicked.connect(slot)
+            br.addWidget(b)
+        dl.addLayout(br)
+        hint = QLabel("Eshik devorning qaysi tarafiga bosilsa yoki sudralsa, o'sha tarafga ochiladi. "
+                      "Ikki marta bosish - tomonini almashtirish. Chetidagi oq tutqichlar - kengligi.")
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        dl.addWidget(hint)
+        dl.addStretch()
+        self.props.addWidget(dw)
         lay.addWidget(self.props)
 
         lay.addWidget(hline())
@@ -627,7 +692,7 @@ class MainWindow(QMainWindow):
         return scroll
 
     PROPS_TITLES = ["Etaj sozlamalari", "Tanlangan xona", "Tanlangan jihoz", "Tanlangan elementlar",
-                    "Tanlangan devor"]
+                    "Tanlangan devor", "Tanlangan eshik"]
 
     def _on_props_page(self, i: int):
         self.props_title.setText(self.PROPS_TITLES[i].upper())
@@ -882,7 +947,14 @@ class MainWindow(QMainWindow):
         rooms = [i for i in sel if isinstance(i, RoomItem)]
         eqs = [i for i in sel if isinstance(i, EquipmentItem)]
         walls = [i for i in sel if isinstance(i, WallItem)]
-        if walls and len(walls) == len(sel):
+        doors = [i for i in sel if isinstance(i, DoorItem)]
+        if len(sel) == 1 and doors:
+            d = doors[0].door
+            m = meter_px(self.floor)
+            self._set_quiet(self.p_door_w, d.width / m)
+            self.p_door_leaves.setCurrentIndex(0 if d.leaves == 1 else 1)
+            self.props.setCurrentIndex(5)
+        elif walls and len(walls) == len(sel):
             m = meter_px(self.floor)
             self._set_quiet(self.p_wall_thick, walls[0].wall.thickness / m)
             length = sum(math.dist(a, b) for it in walls for a, b in zip(it.wall.points, it.wall.points[1:])) / m
@@ -899,6 +971,12 @@ class MainWindow(QMainWindow):
             else:
                 self.p_room_area.setText("masshtab yo'q")
             self.fill_room_equipment(r)
+            self.p_stairs.parentWidget().setVisible(r.kind == "stairs")
+            self.p_stairs_dir.setCurrentIndex(self.p_stairs_dir.findData(r.direction))
+            m = meter_px(self.floor)
+            x0, y0, x1, y1 = rooms[0].bbox()
+            self._set_quiet(self.p_room_w, (x1 - x0) / m)
+            self._set_quiet(self.p_room_h, (y1 - y0) / m)
             self.props.setCurrentIndex(1)
         elif len(sel) == 1 and eqs:
             e = eqs[0].eq
@@ -919,6 +997,7 @@ class MainWindow(QMainWindow):
         else:
             if self.floor is not None:
                 self._set_quiet(self.p_room_wall, self.floor.wall_m)
+                self._set_quiet(self.p_symbol, round(self.floor.symbol_scale * 100))
             self.props.setCurrentIndex(0)
 
     def fill_room_equipment(self, room):
@@ -943,6 +1022,101 @@ class MainWindow(QMainWindow):
         self.room_eq.addStretch()
         self.props.currentWidget().updateGeometry()
         self.props.updateGeometry()
+
+    @staticmethod
+    def _size_spin(lo: float = 0.3, hi: float = 500.0, step: float = 0.1) -> QDoubleSpinBox:
+        sp = QDoubleSpinBox()
+        sp.setRange(lo, hi)
+        sp.setDecimals(2)
+        sp.setSingleStep(step)
+        sp.setSuffix(" m")
+        sp.setKeyboardTracking(False)
+        sp.setButtonSymbols(QDoubleSpinBox.NoButtons)
+        return sp
+
+    def on_symbol_scale(self, percent: int):
+        if self.floor is None or abs(self.floor.symbol_scale * 100 - percent) < 0.5:
+            return
+        self.floor.symbol_scale = percent / 100
+        self.histories[self.floor.id].push(self.floor)
+        self.show_floor(self.floor, keep_view=True)
+        self.set_dirty()
+
+    def on_stairs_dir(self):
+        for it in self.scene.selected_rooms():
+            if it.room.kind == "stairs":
+                it.set_direction(self.p_stairs_dir.currentData())
+        self.scene.changed_model.emit()
+
+    def turn_stairs(self):
+        stairs = [it for it in self.scene.selected_rooms() if it.room.kind == "stairs"]
+        for it in stairs:
+            it.cycle_direction()
+        if stairs:
+            self.scene.changed_model.emit()
+
+    def on_room_size(self):
+        rooms = self.scene.selected_rooms()
+        if len(rooms) != 1:
+            return
+        it = rooms[0]
+        m = meter_px(self.floor)
+        x0, y0, x1, y1 = it.bbox()
+        w, h = (x1 - x0) / m, (y1 - y0) / m
+        if w <= 0 or h <= 0:
+            return
+        sx, sy = self.p_room_w.value() / w, self.p_room_h.value() / h
+        if abs(sx - 1) < 1e-4 and abs(sy - 1) < 1e-4:
+            return
+        it.scale_by(sx, sy, anchor="topleft")
+        self.scene.changed_model.emit()
+
+    def selected_door(self):
+        doors = [i for i in self.scene.selectedItems() if isinstance(i, DoorItem)]
+        return doors[0] if len(doors) == 1 else None
+
+    def on_door_props(self):
+        it = self.selected_door()
+        if it is None:
+            return
+        width = self.p_door_w.value() * meter_px(self.floor)
+        leaves = self.p_door_leaves.currentData()
+        if abs(width - it.door.width) < 1e-6 and leaves == it.door.leaves:
+            return
+        it.door.leaves = leaves
+        it.set_width(width)
+        self.scene.changed_model.emit()
+
+    def flip_door(self):
+        it = self.selected_door()
+        if it:
+            it.set_flip(not it.door.flip)
+            self.scene.changed_model.emit()
+
+    def mirror_door(self):
+        it = self.selected_door()
+        if it:
+            it.prepareGeometryChange()
+            it.door.mirror = not it.door.mirror
+            it.update()
+            self.scene.changed_model.emit()
+
+    def scale_selected(self, factor: float):
+        """Tanlangan elementlarni kattalashtirish/kichiklashtirish (xona, zina, devor - o'z markazi
+        atrofida; eshik - kengligi; faqat AT belgilari tanlansa - etajdagi belgilar o'lchami)."""
+        sel = self.scene.selectedItems()
+        shapes = [i for i in sel if isinstance(i, (RoomItem, WallItem))]
+        doors = [i for i in sel if isinstance(i, DoorItem)]
+        if not shapes and not doors:
+            if self.floor is not None and (not sel or all(isinstance(i, EquipmentItem) for i in sel)):
+                self.p_symbol.setValue(round(min(400, max(30, self.floor.symbol_scale * 100 * factor))))
+                self.statusBar().showMessage(f"AT belgilari o'lchami: {self.p_symbol.value()} %", 3000)
+            return
+        for it in shapes:
+            it.scale_by(factor)
+        for it in doors:
+            it.set_width(it.door.width * factor)
+        self.scene.changed_model.emit()
 
     @staticmethod
     def _thickness_spin() -> QDoubleSpinBox:

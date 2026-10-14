@@ -139,7 +139,7 @@ def export_dxf(path: str, building: Building, floor: Floor, planned: bool = True
             msp.add_lwpolyline([pt(x, y) for x, y in ln], dxfattribs={"layer": "ESHIKLAR"})
     for room in floor.rooms:
         if room.kind == "stairs":
-            for ln in stair_lines(room.points, meter_px(floor) * 0.3):
+            for ln in stair_lines(room.points, meter_px(floor) * 0.3, room.direction):
                 msp.add_lwpolyline([pt(x, y) for x, y in ln], dxfattribs={"layer": "ZINALAR"})
 
     # AT jihozlari - bloklar sifatida (CAD'da sanash va almashtirish oson)

@@ -25,6 +25,7 @@ class Room:
     kind: str = "room"          # room / corridor / stairs / wc / other
     name: str = ""
     id: str = field(default_factory=new_id)
+    direction: str = ""         # zina yo'nalishi (ko'tarilish): "" avtomatik, right/left/down/up
 
     def centroid(self) -> tuple[float, float]:
         pts = self.points
@@ -112,6 +113,7 @@ class Floor:
     walls: list[Wall] = field(default_factory=list)
     scale_m_per_px: float | None = None   # masshtab (1 piksel necha metr)
     wall_m: float = 0.30                  # xona devorlarining qalinligi (metr)
+    symbol_scale: float = 1.0             # AT belgilarining o'lchami (1.0 - standart)
     id: str = field(default_factory=new_id)
 
     def room_of(self, e: "Equipment") -> "Room | None":
@@ -127,6 +129,7 @@ class Floor:
             "height": self.height,
             "scale_m_per_px": self.scale_m_per_px,
             "wall_m": self.wall_m,
+            "symbol_scale": self.symbol_scale,
             "rooms": [asdict(r) for r in self.rooms],
             "equipment": [asdict(e) for e in self.equipment],
             "doors": [asdict(d) for d in self.doors],
@@ -145,8 +148,10 @@ class Floor:
         self.height = d["height"]
         self.scale_m_per_px = d.get("scale_m_per_px")
         self.wall_m = d.get("wall_m", 0.30)
+        self.symbol_scale = d.get("symbol_scale", 1.0)
         self.rooms = [Room(points=[tuple(p) for p in r["points"]], kind=r.get("kind", "room"),
-                           name=r.get("name", ""), id=r.get("id") or new_id())
+                           name=r.get("name", ""), id=r.get("id") or new_id(),
+                           direction=r.get("direction", ""))
                       for r in d.get("rooms", [])]
         self.equipment = [Equipment(code=e["code"], x=e["x"], y=e["y"], note=e.get("note", ""),
                                     id=e.get("id") or new_id(), status=e.get("status", "existing"))

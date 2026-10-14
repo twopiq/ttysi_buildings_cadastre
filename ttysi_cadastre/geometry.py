@@ -87,8 +87,27 @@ def _orientation(poly: Polygon) -> float:
     return ((a + 45) % 90) - 45   # -45..45 oralig'iga: 0 - to'g'ri turgan zina
 
 
-def stair_lines(points, step: float) -> list[list[tuple[float, float]]]:
-    """Zina pog'onalari (uzun tomoni bo'ylab) va yo'nalish strelkasi; burilgan zinada ham."""
+STAIR_DIRECTIONS = ("right", "down", "left", "up")   # soat strelkasi bo'yicha
+
+
+def auto_stair_direction(points) -> str:
+    """Avtomatik yo'nalish: uzun tomon bo'ylab (gorizontal - o'ngga, vertikal - yuqoriga)."""
+    poly = Polygon(points).buffer(0)
+    if poly.is_empty:
+        return "right"
+    a = _orientation(poly)
+    c = poly.centroid
+    pts = rotate_points(list(poly.exterior.coords)[:-1], -a, (c.x, c.y)) if abs(a) > 0.5 \
+        else list(poly.exterior.coords)
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return "right" if (max(xs) - min(xs)) >= (max(ys) - min(ys)) else "up"
+
+
+def stair_lines(points, step: float, direction: str = "") -> list[list[tuple[float, float]]]:
+    """Zina pog'onalari va ko'tarilish yo'nalishi strelkasi; burilgan zinada ham.
+
+    direction: "" - avtomatik (uzun tomon bo'ylab), yoki right/left/down/up (zinaning o'z o'qlarida).
+    """
     poly = Polygon(points).buffer(0)
     if poly.is_empty or step <= 0:
         return []
@@ -97,13 +116,15 @@ def stair_lines(points, step: float) -> list[list[tuple[float, float]]]:
         # burilgan zina: to'g'rilab hisoblaymiz va natijani qayta buramiz
         c = poly.centroid
         straight = rotate_points(list(poly.exterior.coords)[:-1], -a, (c.x, c.y))
-        return [rotate_points(ln, a, (c.x, c.y)) for ln in _stair_lines_axis(Polygon(straight), step)]
-    return _stair_lines_axis(poly, step)
+        return [rotate_points(ln, a, (c.x, c.y)) for ln in _stair_lines_axis(Polygon(straight), step, direction)]
+    return _stair_lines_axis(poly, step, direction)
 
 
-def _stair_lines_axis(poly: Polygon, step: float) -> list[list[tuple[float, float]]]:
+def _stair_lines_axis(poly: Polygon, step: float, direction: str = "") -> list[list[tuple[float, float]]]:
     x0, y0, x1, y1 = poly.bounds
-    horizontal = (x1 - x0) >= (y1 - y0)   # pog'onalar uzun tomonga tik
+    if direction not in STAIR_DIRECTIONS:
+        direction = "right" if (x1 - x0) >= (y1 - y0) else "up"
+    horizontal = direction in ("right", "left")   # pog'onalar yurish yo'nalishiga tik
     out = []
     n = int(((x1 - x0) if horizontal else (y1 - y0)) / step)
     for i in range(1, n + 1):
@@ -115,14 +136,21 @@ def _stair_lines_axis(poly: Polygon, step: float) -> list[list[tuple[float, floa
         for g in getattr(cut, "geoms", [cut]):
             if g.geom_type == "LineString" and g.length > 1:
                 out.append([(float(x), float(y)) for x, y in g.coords])
-    # strelka: markaz chizig'i bo'ylab
+    # strelka: markaz chizig'i bo'ylab, ko'tarilish tomoniga
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    if horizontal:
+    k = step * 0.6
+    if direction == "right":
         a, b = (x0 + step, cy), (x1 - step, cy)
-        head = [(b[0] - step, cy - step * 0.6), b, (b[0] - step, cy + step * 0.6)]
-    else:
+        head = [(b[0] - step, cy - k), b, (b[0] - step, cy + k)]
+    elif direction == "left":
+        a, b = (x1 - step, cy), (x0 + step, cy)
+        head = [(b[0] + step, cy - k), b, (b[0] + step, cy + k)]
+    elif direction == "down":
+        a, b = (cx, y0 + step), (cx, y1 - step)
+        head = [(cx - k, b[1] - step), b, (cx + k, b[1] - step)]
+    else:   # up
         a, b = (cx, y1 - step), (cx, y0 + step)
-        head = [(cx - step * 0.6, b[1] + step), b, (cx + step * 0.6, b[1] + step)]
+        head = [(cx - k, b[1] + step), b, (cx + k, b[1] + step)]
     out += [[a, b], head]
     return out
 
