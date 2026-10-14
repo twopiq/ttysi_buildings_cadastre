@@ -157,3 +157,43 @@ def test_import_screen_with_pdf(qapp, tmp_path):
     assert w.floor is f and w.pages.currentWidget() is w.editor
     _close(w)
     doc.close()
+
+
+def test_buildings_folder_and_floors(qapp, tmp_path):
+    """Binolar papkasi: 1-bino > 1,2-qavat; 2-bino > 1-qavat. Bosh sahifada etaj bosilsa - shu etaj ochiladi."""
+    from ttysi_cadastre.ui.home import ProjectCard, WORKSPACE_KEY, forget, scan
+    w = _window()
+    w.settings.setValue(WORKSPACE_KEY, str(tmp_path / "Binolar"))
+    w.settings.remove("recent/projects")
+    p1 = w.create_building("1-bino", "Toshkent")
+    assert p1 == str(tmp_path / "Binolar" / "1-bino.ttysi") and os.path.exists(p1)
+    for n in (1, 2):
+        w.building.floors.append(Floor(name=f"{n}-qavat", width=100, height=100))
+    w.building.floors[1].equipment.append(Equipment(code="?", x=5, y=5))
+    assert w.save_project()
+    w.create_building("2-bino")
+    w.building.floors.append(Floor(name="1-qavat", width=100, height=100))
+    w.save_project()
+    assert w.create_building("1-bino").endswith("1-bino (2).ttysi")     # nom band - yangi fayl
+    forget(w.settings, w.path)
+    os.remove(w.path)
+
+    items = scan(str(tmp_path / "Binolar"))
+    assert [i["name"] for i in items] == ["1-bino", "2-bino"]
+    assert items[0]["floor_list"] == [["1-qavat", 0], ["2-qavat", 1]]
+
+    w.dirty = False
+    w.show_home()
+    cards = [c for c in w.home.cards if isinstance(c, ProjectCard)]
+    assert len(cards) == 2 and not w.home.other_title.isVisible()
+    chips = cards[0].findChildren(type(w.home.cards[-1]).__mro__[1], "floorChip")
+    assert [c.text() for c in chips] == ["1-qavat", "2-qavat  ⚠1"]
+    chips[1].click()                                                  # 1-bino, 2-qavat
+    assert w.pages.currentWidget() is w.editor
+    assert w.building.name == "1-bino" and w.floor is w.building.floors[1]
+
+    w.fill_switch_menu()
+    names = [a.text() for a in w.switch_menu.actions() if a.text()]
+    assert names[0].startswith("1-bino") and w.switch_menu.actions()[0].isChecked()
+    assert names[1].startswith("2-bino")
+    _close(w)

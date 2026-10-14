@@ -24,7 +24,7 @@ from ..render import RenderOptions, equipment_counts, meter_px, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
 from .export_dialog import ExportDialog
-from .home import HomePage, remember
+from .home import HomePage, new_building_path, remember, safe_file_name, scan, workspace
 from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIRS, WALL, EquipmentItem,
                      FloorScene, FloorView, RoomItem, WallItem)
 from .import_dialog import ImportDialog, RedetectDialog, image_paper_mm_per_px
@@ -99,6 +99,7 @@ class MainWindow(QMainWindow):
         self.home.open_dialog.connect(lambda: self.open_project())
         self.home.new_building.connect(self.new_building)
         self.home.new_from_file.connect(self.new_building)
+        self.home.open_floor.connect(self.open_floor)
         self.pages.addWidget(self.home)
         self.editor = self.build_editor()
         self.pages.addWidget(self.editor)
@@ -126,7 +127,7 @@ class MainWindow(QMainWindow):
         A = self._act
         m = mb.addMenu("&Fayl")
         A(m, "Bosh sahifa", self.show_home, "Ctrl+H", "file.home")
-        A(m, "Yangi loyiha", self.new_project, QKeySequence.New, "file.new")
+        A(m, "Yangi bino...", lambda: self.new_building(), QKeySequence.New, "file.new")
         A(m, "Ochish...", self.open_project, QKeySequence.Open, "file.open")
         A(m, "Saqlash", self.save_project, QKeySequence.Save, "file.save")
         A(m, "Boshqa nom bilan saqlash...", self.save_project_as, "Ctrl+Shift+S", "file.save_as")
@@ -323,6 +324,16 @@ class MainWindow(QMainWindow):
         col.addWidget(self.project_name)
         col.addWidget(self.project_state)
         lay.addLayout(col)
+        self.switch_btn = QToolButton()
+        self.switch_btn.setObjectName("zoomBtn")
+        self.switch_btn.setText("▾")
+        self.switch_btn.setToolTip("Boshqa binoga o'tish")
+        self.switch_btn.setPopupMode(QToolButton.InstantPopup)
+        self.switch_menu = QMenu(self)
+        self.switch_menu.aboutToShow.connect(self.fill_switch_menu)
+        self.switch_btn.setMenu(self.switch_menu)
+        self.switch_btn.setStyleSheet("QToolButton::menu-indicator { image: none; }")
+        lay.addWidget(self.switch_btn)
         info = QToolButton()
         info.setObjectName("zoomBtn")
         info.setIcon(svg_icon("edit", theme.INK_3, size=16))
@@ -1274,7 +1285,7 @@ class MainWindow(QMainWindow):
 
     def export_excel_many(self):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Hisobotga kiradigan loyihalarni tanlang (bir nechta)", self.settings.value("last_dir", ""),
+            self, "Hisobotga kiradigan loyihalarni tanlang (bir nechta)", workspace(self.settings),
             FILE_FILTER)
         if not paths:
             return
@@ -1373,12 +1384,68 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(self.home)
 
     def new_building(self, path: str | None = None):
-        """Bosh sahifadan: yangi loyiha va darhol etaj yuklash."""
-        if self.pages.currentWidget() is not self.home and not self.maybe_save():
+        """Yangi bino: nomini so'rab, binolar papkasida fayl yaratadi va darhol etaj yuklashni ochadi."""
+        if not self.maybe_save():
             return
-        self.dirty = False
-        self.new_project()
+        n = len(scan(workspace(self.settings))) + 1
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Yangi bino")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(12)
+        name = QLineEdit(f"{n}-bino")
+        name.selectAll()
+        addr = QLineEdit()
+        addr.setPlaceholderText("ixtiyoriy")
+        lay.addWidget(field("Bino nomi", name))
+        lay.addWidget(field("Manzil", addr))
+        where = QLabel(f"Saqlanadi: {workspace(self.settings)}")
+        where.setObjectName("muted")
+        where.setWordWrap(True)
+        lay.addWidget(where)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText("Yaratish va etaj yuklash")
+        bb.button(QDialogButtonBox.Ok).setObjectName("primary")
+        bb.button(QDialogButtonBox.Cancel).setText("Bekor qilish")
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        dlg.resize(440, dlg.sizeHint().height())
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self.create_building(name.text().strip() or f"{n}-bino", addr.text().strip())
         self.add_floor_from_image(path)
+
+    def create_building(self, name: str, address: str = "") -> str:
+        """Binolar papkasida yangi bino fayli (darhol saqlanadi) va uni muharrirda ochish."""
+        self.building = Building(name=name, address=address)
+        self.path = new_building_path(self.settings, name)
+        self.histories.clear()
+        self.bg_cache.clear()
+        self.building.save(self.path)
+        remember(self.settings, self.building, self.path)
+        self.refresh_all()
+        return self.path
+
+    def open_floor(self, path: str, index: int):
+        """Bosh sahifadagi etaj tugmasi: binoni ochib, shu etajni ko'rsatadi."""
+        self.open_project(path)
+        if self.path and os.path.normcase(os.path.abspath(self.path)) == os.path.normcase(path):
+            self.select_floor(index)
+
+    def fill_switch_menu(self):
+        m = self.switch_menu
+        m.clear()
+        items = scan(workspace(self.settings))
+        cur = os.path.normcase(os.path.abspath(self.path)) if self.path else ""
+        for it in items:
+            a = m.addAction(f"{it['name']}  ·  {it['floors']} etaj", lambda p=it["path"]: self.open_project(p))
+            a.setCheckable(True)
+            a.setChecked(os.path.normcase(it["path"]) == cur)
+        if items:
+            m.addSeparator()
+        m.addAction("+ Yangi bino...", lambda: self.new_building())
+        m.addAction("Bosh sahifa (barcha binolar)", self.show_home)
 
     def new_project(self):
         if not self.maybe_save():
@@ -1393,7 +1460,7 @@ class MainWindow(QMainWindow):
         if not self.maybe_save():
             return
         if not path:
-            path, _ = QFileDialog.getOpenFileName(self, "Loyihani ochish", self.settings.value("last_dir", ""),
+            path, _ = QFileDialog.getOpenFileName(self, "Loyihani ochish", workspace(self.settings),
                                                   FILE_FILTER)
         if not path:
             return
@@ -1425,7 +1492,7 @@ class MainWindow(QMainWindow):
         return True
 
     def save_project_as(self) -> bool:
-        default = os.path.join(self.settings.value("last_dir", ""), f"{self.building.name}.ttysi")
+        default = os.path.join(workspace(self.settings), safe_file_name(self.building.name) + ".ttysi")
         path, _ = QFileDialog.getSaveFileName(self, "Loyihani saqlash", default, FILE_FILTER)
         if not path:
             return False

@@ -1,8 +1,10 @@
-"""Bosh sahifa: oxirgi ochilgan binolar, yangi bino va ish tartibi.
+"""Bosh sahifa: binolar papkasi, har bir bino va uning etajlari, yangi bino va ish tartibi.
 
-Dizayn maketidagi "Bosh sahifa" asosida. Binolar ro'yxati QSettings'da saqlanadi
-(loyiha ochilganda va saqlanganda yangilanadi), shuning uchun kartalar fayllarni
-qayta o'qimasdan tez chiqadi.
+Tuzilma:  Binolar papkasi / 1-bino.ttysi  (ichida 1-qavat, 2-qavat, ...)
+                        / 2-bino.ttysi  (ichida 1-qavat, 2-qavat, ...)
+Har bir bino - bitta .ttysi fayl, etajlar va kadastr rasmlari shu faylning ichida (bitta faylni
+nusxalash yoki yuborish kifoya). Bosh sahifa papkadagi barcha binolarni o'zi ko'rsatadi; boshqa
+joydan ochilgan loyihalar ham "oxirgilar" ro'yxatida qoladi.
 """
 
 from __future__ import annotations
@@ -11,7 +13,8 @@ import json
 import os
 import time
 
-from PySide6.QtCore import QSettings, Qt, Signal
+from PySide6.QtCore import QSettings, QStandardPaths, Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QProgressBar, QPushButton,
                                QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
@@ -21,6 +24,7 @@ from . import theme
 from .widgets import LayoutButton, chip, svg_icon
 
 RECENT_KEY = "recent/projects"
+WORKSPACE_KEY = "workspace/folder"
 RECENT_LIMIT = 12
 DROP_EXT = (".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 
@@ -39,9 +43,73 @@ def summary(building, path: str) -> dict:
             else:
                 counts[e.code] = counts.get(e.code, 0) + 1
     ready = sum(1 for f in floors if f.rooms and not any(e.code == "?" for e in f.equipment))
+    floor_list = [[f.name, sum(1 for e in f.equipment if e.code == "?")] for f in floors]
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = time.time()
     return {"path": os.path.abspath(path), "name": building.name or os.path.basename(path),
             "address": building.address, "floors": len(floors), "ready": ready, "unknown": unknown,
-            "planned": planned, "counts": counts, "time": time.time()}
+            "planned": planned, "counts": counts, "time": mtime, "floor_list": floor_list}
+
+
+def default_workspace() -> str:
+    docs = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation) or os.path.expanduser("~")
+    return os.path.join(docs, "TTYSI Binolar")
+
+
+def workspace(settings: QSettings) -> str:
+    """Binolar papkasi (yangi binolar shu yerda saqlanadi)."""
+    return settings.value(WORKSPACE_KEY, "") or default_workspace()
+
+
+def safe_file_name(name: str) -> str:
+    return "".join(c for c in name if c not in '\\/:*?"<>|').strip().rstrip(".") or "Bino"
+
+
+def new_building_path(settings: QSettings, name: str) -> str:
+    """Papkada shu nomli bino uchun bo'sh fayl nomi ("1-bino.ttysi", band bo'lsa "1-bino (2).ttysi")."""
+    folder = workspace(settings)
+    os.makedirs(folder, exist_ok=True)
+    base = safe_file_name(name)
+    path = os.path.join(folder, base + ".ttysi")
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(folder, f"{base} ({n}).ttysi")
+        n += 1
+    return path
+
+
+_cache: dict[str, tuple[float, dict]] = {}
+
+
+def scan(folder: str) -> list[dict]:
+    """Papkadagi barcha binolar (rasmlarsiz tez o'qiladi, o'zgarmagan fayllar keshdan)."""
+    from ..model import Building
+    out = []
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return out
+    for name in names:
+        if not name.lower().endswith(".ttysi"):
+            continue
+        path = os.path.abspath(os.path.join(folder, name))
+        try:
+            mtime = os.path.getmtime(path)
+            hit = _cache.get(path)
+            if hit is None or hit[0] != mtime:
+                _cache[path] = (mtime, summary(Building.load(path, images=False), path))
+            out.append(_cache[path][1])
+        except Exception:
+            continue    # buzilgan yoki boshqa fayl - ro'yxatda ko'rsatilmaydi
+    return sorted(out, key=lambda i: natural_key(i["name"]))
+
+
+def natural_key(text: str):
+    """"2-bino" "10-bino" dan oldin keladi."""
+    import re
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", text)]
 
 
 def recent(settings: QSettings) -> list[dict]:
@@ -84,6 +152,16 @@ QPushButton#card {{
 QPushButton#card:hover {{ border: 2px solid {theme.PRIMARY}; }}
 QPushButton#card:disabled {{ background: #F7F8FA; }}
 QLabel#cardTitle {{ font-weight: 600; font-size: 16px; }}
+QPushButton#floorChip {{
+    min-height: 26px; padding: 0 10px; border: 1px solid {theme.LINE_STRONG}; border-radius: 13px;
+    background: {theme.SURFACE}; font-size: 12px; font-weight: 500; color: {theme.INK_2};
+}}
+QPushButton#floorChip:hover {{ border-color: {theme.PRIMARY}; color: {theme.PRIMARY_DARK}; background: {theme.PRIMARY_SOFT}; }}
+QPushButton#floorChip[warn="true"] {{ color: {theme.WARN_FG}; border-color: #E9C79F; }}
+QFrame#folderBar {{ background: {theme.SURFACE}; border: 1px solid {theme.LINE}; border-radius: 10px; }}
+QLabel#sectionTitle {{ font-size: 16px; font-weight: 600; }}
+QPushButton#link {{ border: none; background: transparent; color: {theme.PRIMARY}; font-weight: 600;
+    min-height: 28px; padding: 0 6px; }}
 QPushButton#newCard {{
     border: 2px dashed #A9C0DE; border-radius: 12px; background: transparent; color: {theme.PRIMARY};
     font-weight: 600; min-height: 180px;
@@ -98,6 +176,7 @@ QLabel#stepNo {{
 
 class ProjectCard(LayoutButton):
     remove_requested = Signal(str)
+    floor_clicked = Signal(str, int)
 
     def __init__(self, item: dict):
         super().__init__()
@@ -172,6 +251,28 @@ class ProjectCard(LayoutButton):
         lay.addLayout(chips)
         for w in self.findChildren(QWidget):
             w.setAttribute(Qt.WA_TransparentForMouseEvents)
+
+        # etajlar: bosilsa - bino shu etajda ochiladi
+        floor_list = item.get("floor_list") or []
+        if floor_list and exists:
+            fl = QGridLayout()
+            fl.setHorizontalSpacing(6)
+            fl.setVerticalSpacing(6)
+            cap = QLabel("Etajlar:")
+            cap.setObjectName("muted")
+            cap.setAttribute(Qt.WA_TransparentForMouseEvents)
+            fl.addWidget(cap, 0, 0)
+            cols = 4
+            for i, (name, unk) in enumerate(floor_list):
+                b = QPushButton(name + (f"  ⚠{unk}" if unk else ""))
+                b.setObjectName("floorChip")
+                b.setProperty("warn", bool(unk))
+                b.setCursor(Qt.PointingHandCursor)
+                b.setToolTip(f"{name} — ochish" + (f" ({unk} ta belgi tasdiqlanmagan)" if unk else ""))
+                b.clicked.connect(lambda _=False, i=i: self.floor_clicked.emit(self.path, i))
+                fl.addWidget(b, i // cols, 1 + i % cols)
+            fl.setColumnStretch(cols + 1, 1)
+            lay.addLayout(fl)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def _menu(self, pos):
@@ -182,6 +283,7 @@ class ProjectCard(LayoutButton):
 
 class HomePage(QWidget):
     open_path = Signal(str)
+    open_floor = Signal(str, int)
     open_dialog = Signal()
     new_building = Signal()
     new_from_file = Signal(str)
@@ -270,9 +372,34 @@ class HomePage(QWidget):
         head.setAlignment(btns, Qt.AlignBottom)
         lay.addLayout(head)
 
+        bar = QFrame()
+        bar.setObjectName("folderBar")
+        bl = QHBoxLayout(bar)
+        bl.setContentsMargins(14, 8, 8, 8)
+        bl.setSpacing(8)
+        icon = QLabel()
+        icon.setPixmap(svg_icon("folder", theme.INK_2, size=18).pixmap(18, 18))
+        bl.addWidget(icon)
+        self.folder_label = QLabel()
+        self.folder_label.setObjectName("muted")
+        self.folder_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        bl.addWidget(self.folder_label, 1)
+        for text, slot in (("Papkani ochish", self.open_folder), ("O'zgartirish...", self.change_folder)):
+            b = QPushButton(text)
+            b.setObjectName("link")
+            b.clicked.connect(slot)
+            bl.addWidget(b)
+        lay.addWidget(bar)
+
         self.grid = QGridLayout()
         self.grid.setSpacing(16)
         lay.addLayout(self.grid)
+        self.other_title = QLabel("Boshqa joydagi loyihalar")
+        self.other_title.setObjectName("sectionTitle")
+        lay.addWidget(self.other_title)
+        self.grid2 = QGridLayout()
+        self.grid2.setSpacing(16)
+        lay.addLayout(self.grid2)
 
         steps = QFrame()
         steps.setObjectName("stepsCard")
@@ -315,17 +442,24 @@ class HomePage(QWidget):
         self.cards: list[QWidget] = []
         self.refresh()
 
+    def _card(self, it: dict) -> ProjectCard:
+        c = ProjectCard(it)
+        c.clicked.connect(lambda _=False, p=it["path"]: self.open_path.emit(p))
+        c.floor_clicked.connect(self.open_floor)
+        c.remove_requested.connect(self._forget)
+        return c
+
     def refresh(self):
         for w in self.cards:
             w.hide()
             w.deleteLater()
         self.cards = []
-        items = recent(self.settings)
-        for it in items:
-            c = ProjectCard(it)
-            c.clicked.connect(lambda _=False, p=it["path"]: self.open_path.emit(p))
-            c.remove_requested.connect(self._forget)
-            self.cards.append(c)
+        folder = workspace(self.settings)
+        self.folder_label.setText(f"Binolar papkasi: {folder}")
+        own = scan(folder)
+        own_paths = {os.path.normcase(i["path"]) for i in own}
+        others = [i for i in recent(self.settings) if os.path.normcase(i["path"]) not in own_paths]
+        main_cards = [self._card(it) for it in own]
         new = LayoutButton()
         new.setObjectName("newCard")
         nl = QVBoxLayout(new)
@@ -344,13 +478,30 @@ class HomePage(QWidget):
         new.setCursor(Qt.PointingHandCursor)
         new.clicked.connect(self.new_building)
         new.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        new.setFixedHeight(max([c.sizeHint().height() for c in self.cards] + [180]))
-        self.cards.append(new)
+        new.setFixedHeight(max([c.sizeHint().height() for c in main_cards] + [180]))
+        main_cards.append(new)
+        other_cards = [self._card(it) for it in others]
         cols = 3
-        for i, c in enumerate(self.cards):
-            self.grid.addWidget(c, i // cols, i % cols, Qt.AlignTop)
-        for c in range(cols):
-            self.grid.setColumnStretch(c, 1)
+        for grid, cards in ((self.grid, main_cards), (self.grid2, other_cards)):
+            for i, c in enumerate(cards):
+                grid.addWidget(c, i // cols, i % cols, Qt.AlignTop)
+            for c in range(cols):
+                grid.setColumnStretch(c, 1)
+        self.other_title.setVisible(bool(other_cards))
+        self.cards = main_cards + other_cards
+        self.buildings = own
+
+    def open_folder(self):
+        folder = workspace(self.settings)
+        os.makedirs(folder, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+
+    def change_folder(self):
+        from PySide6.QtWidgets import QFileDialog
+        d = QFileDialog.getExistingDirectory(self, "Binolar papkasi", workspace(self.settings))
+        if d:
+            self.settings.setValue(WORKSPACE_KEY, d)
+            self.refresh()
 
     def _forget(self, path: str):
         forget(self.settings, path)

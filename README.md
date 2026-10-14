@@ -34,6 +34,30 @@ Tekshiruv vaqtida qog'ozga turli shaklda yozilgan belgilar quyidagicha tasdiqlan
 - `103-x` kabi yozuvlar — **xona raqami** (103-xona). U xonaning nomiga yoziladi.
 - "Kompyuter xona" — jihoz emas, **xona turi**: o'ng tugma → Turi → Kompyuter xona.
 
+## Binolar va etajlar qanday saqlanadi
+
+```
+Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartirish mumkin)
+├── 1-bino.ttysi                  <- bitta bino = bitta fayl
+│     ├── 1-qavat                    (etajlar, ularning chizmasi, AT jihozlari
+│     ├── 2-qavat                     va kadastr rasmlari fayl ichida)
+│     └── 3-qavat
+└── 2-bino.ttysi
+      ├── 1-qavat
+      └── 2-qavat
+```
+
+- Har bir bino alohida fayl, etajlar esa shu faylning ichida. Binoni boshqa kompyuterga ko'chirish
+  yoki yuborish uchun bitta `.ttysi` faylni nusxalash kifoya.
+- **Yangi bino** tugmasi nom so'raydi (masalan "3-bino") va faylni avtomatik Binolar papkasida
+  yaratadi — "Saqlash" oynasi bilan ovora bo'lish shart emas.
+- Bosh sahifa papkadagi **barcha binolarni** o'zi ko'rsatadi; har bir kartada etajlar ro'yxati bor —
+  etajni bossangiz, bino shu etajda ochiladi. Papkaga boshqa kompyuterdan `.ttysi` fayl ko'chirsangiz,
+  u ham ro'yxatda paydo bo'ladi. Boshqa joydan ochilgan loyihalar "Boshqa joydagi loyihalar" bo'limida.
+- Muharrirda bino nomi yonidagi **▾** — boshqa binoga tez o'tish.
+- Saqlash xavfsiz: fayl avval vaqtinchalik nusxaga yoziladi, keyin almashtiriladi (saqlash vaqtida
+  dastur yopilib qolsa ham eski fayl buzilmaydi).
+
 ## Dastur oynalari
 
 - **Bosh sahifa** — dastur ochilganda chiqadi. Oxirgi binolar kartalarda ko'rinadi: etajlar soni,

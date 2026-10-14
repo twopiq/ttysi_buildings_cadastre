@@ -7,6 +7,7 @@ Barcha koordinatalar etaj rasmining piksellarida saqlanadi.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 import zipfile
 from dataclasses import dataclass, field, asdict
@@ -172,6 +173,16 @@ class Building:
     floors: list[Floor] = field(default_factory=list)
 
     def save(self, path: str) -> None:
+        """Avval vaqtinchalik faylga yoziladi, keyin almashtiriladi - saqlash uzilsa eski fayl buzilmaydi."""
+        tmp = path + ".saving"
+        try:
+            self._write(tmp)
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+
+    def _write(self, path: str) -> None:
         data = {
             "format": "ttysi-cadastre",
             "version": FORMAT_VERSION,
@@ -190,13 +201,14 @@ class Building:
             z.writestr("project.json", json.dumps(data, ensure_ascii=False, indent=1))
 
     @classmethod
-    def load(cls, path: str) -> "Building":
+    def load(cls, path: str, images: bool = True) -> "Building":
+        """images=False - rasmlarsiz tez o'qish (bosh sahifadagi ro'yxat uchun)."""
         with zipfile.ZipFile(path) as z:
             data = json.loads(z.read("project.json").decode("utf-8"))
             if data.get("format") != "ttysi-cadastre":
                 raise ValueError("Bu fayl TTYSI kadastr loyihasi emas")
             b = cls(name=data.get("name", ""), address=data.get("address", ""))
             for d in data.get("floors", []):
-                img = z.read(d["image"]) if d.get("image") else None
+                img = z.read(d["image"]) if images and d.get("image") else None
                 b.floors.append(Floor.from_dict(d, img))
         return b
