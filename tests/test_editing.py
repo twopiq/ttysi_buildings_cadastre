@@ -225,3 +225,61 @@ def test_rotate_any_angle(qapp):
     w.rotate_spins[2].lineEdit().returnPressed.emit()
     assert ((d.door.angle - before + 180) % 360) - 180 == pytest.approx(-7)
     _close(w)
+
+
+def test_floating_equipment_palette(qapp):
+    """AT jihoz paneli: chap panel <-> suzuvchi oyna, surish, joyi va rejimi eslab qolinadi."""
+    from PySide6.QtCore import QPoint
+    from ttysi_cadastre.model import Building, Equipment, Floor
+    from ttysi_cadastre.ui.canvas import EQUIP
+    from ttysi_cadastre.ui.main_window import MainWindow
+    b = Building(name="B")
+    f = Floor(name="1", width=1000, height=800)
+    f.equipment = [Equipment(code="?", x=10, y=10), Equipment(code="?", x=50, y=10)]
+    b.floors.append(f)
+    w = MainWindow()
+    w.settings.remove("equip_palette")
+    w.building = b
+    w.refresh_all()
+    w.pages.setCurrentWidget(w.editor)
+    w.resize(1400, 900)
+    w.show()
+    qapp.processEvents()
+    pal = w.equip_palette
+    w.set_equip_floating(False)
+    assert not pal.isVisible() and w.equip_group.isVisible()
+
+    w.a_float_equip.trigger()                                  # F9 - suzuvchi rejim
+    assert pal.isVisible() and not w.equip_group.isVisible()
+    assert w.settings.value("equip_palette/floating", type=bool)
+    assert pal.b_next.isVisible() and "(2)" in pal.b_next.text()
+
+    pal.buttons[2].click()                                     # suzuvchi tugma ham o'sha amal
+    assert w.view.tool == EQUIP and pal.buttons[2].isChecked()
+    pal.plan.setChecked(True)
+    assert w.a_plan_mode.isChecked()
+    w.a_plan_mode.setChecked(False)
+    assert not pal.plan.isChecked()
+
+    pal.move_to(QPoint(10_000, 10_000))                        # chizma chegarasidan chiqmaydi
+    r = w.view.viewport().geometry()
+    assert r.contains(pal.geometry())
+    pal.place_near(QPoint(300, 200))
+    assert pal.pos() == QPoint(324, 216)
+    w.resize(1200, 800)                                        # oyna o'lchami o'zgarsa ham taxminan o'sha joyda
+    qapp.processEvents()
+    assert pal.isVisible() and r.contains(pal.geometry().topLeft())
+
+    v = pal.width()
+    pal.toggle_orientation()                                   # yotiq ko'rinish
+    assert pal.horizontal and pal.width() > v
+    pal.toggle_orientation()
+
+    pal.next_unknown.emit()
+    assert w.scene.selectedItems() and w.scene.selectedItems()[0].eq.code == "?"
+
+    pal.b_dock.click()                                         # chap panelga qaytarish
+    assert not pal.isVisible() and w.equip_group.isVisible() and not w.a_float_equip.isChecked()
+    assert not w.settings.value("equip_palette/floating", type=bool)
+    w.dirty = False
+    w.close()

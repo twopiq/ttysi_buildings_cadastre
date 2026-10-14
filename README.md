@@ -82,6 +82,12 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
   belgilar → eksport) — har birini bosib shu bosqichga o'tasiz. Chapda asboblar va rangli AT jihoz
   tugmalari, o'rtada chizma (kadastr foni, kattalashtirish), o'ngda tanlangan element xususiyatlari va
   etaj bo'yicha jihozlar soni.
+- **Suzuvchi AT jihoz paneli** — AT jihoz tugmalarini chizma ustidagi kichik oynaga aylantirish:
+  chap paneldagi "AT jihoz" yonidagi **⧉** yoki **Ko'rinish → AT jihoz paneli - suzuvchi oyna** (`F9`).
+  Oynani sarlavhasidan ushlab chizmaning qulay joyiga surasiz; `F7` — oynani sichqoncha turgan joyga
+  olib keladi. **⇄** (yoki sarlavhani ikki marta bosish) — tik / yotiq ko'rinish. Oynada "Kerak (reja)"
+  va **Keyingi ?** (tasdiqlanmagan belgiga o'tish) ham bor. **⇤** yoki yana `F9` — tugmalar chap panelga
+  qaytadi. Rejim, joy va ko'rinish eslab qolinadi.
 - **Etaj qo'shish ekrani** — PDF bo'lsa, chapda sahifalar; o'rtada etajni ramkaga olasiz (ramka ostida
   etaj o'lchami metrda chiqadi); o'ngda etaj nomi, nisbat, avtomatik chizish va kengaytirilgan
   sozlamalar. **Yaratish va shu PDF'dan yana etaj** — keyingi etajni darhol qo'shish.

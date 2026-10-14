@@ -387,6 +387,9 @@ QToolButton#tool {{
 QToolButton#tool:hover {{ background: #EEF1F4; }}
 QToolButton#tool:checked {{ background: {theme.PRIMARY_SOFT}; color: {theme.PRIMARY_DARK}; }}
 QLabel#toolGroup {{ font-size: 11px; font-weight: 600; color: {theme.INK_3}; }}
+QToolButton#floatBtn {{ border: none; border-radius: 6px; min-width: 20px; min-height: 20px; padding: 0;
+    color: {theme.INK_3}; background: transparent; }}
+QToolButton#floatBtn:hover {{ background: {theme.PRIMARY_SOFT}; color: {theme.PRIMARY_DARK}; }}
 QCheckBox#planMode {{ font-size: 11px; color: {theme.INK_2}; }}
 QLabel#floorTitle {{ font-weight: 600; font-size: 16px; }}
 QFrame#zoomBox {{ border: 1px solid {theme.LINE}; border-radius: 8px; background: {theme.SURFACE}; }}

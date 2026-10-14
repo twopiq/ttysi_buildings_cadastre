@@ -6,9 +6,9 @@ import math
 import os
 from datetime import datetime
 
-from PySide6.QtCore import QPointF, QSettings, QSize, Qt, QTimer
+from PySide6.QtCore import QPoint, QPointF, QSettings, QSize, Qt, QTimer
 from PySide6.QtPdf import QPdfDocument
-from PySide6.QtGui import QAction, QActionGroup, QImage, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QCursor, QImage, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                                QFileDialog, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
@@ -24,6 +24,7 @@ from ..render import RenderOptions, equipment_counts, meter_px, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
 from .export_dialog import ExportDialog
+from .equip_palette import EquipPalette
 from .export_progress import ExportProgress, Job
 from .home import HomePage, new_building_path, org_of, orgs, remember, safe_file_name, scan, workspace
 from .canvas import (BG_ALIGN, BG_MOVE, DOME, DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIR_NAMES, STAIRS, WALL,
@@ -200,6 +201,11 @@ class MainWindow(QMainWindow):
         self.a_ortho = A(m, "Orto rejim (faqat gorizontal/vertikal)", self.toggle_ortho, "F8", "view.ortho")
         self.a_ortho.setCheckable(True)
         self.a_ortho.setChecked(True)
+        m.addSeparator()
+        self.a_float_equip = A(m, "AT jihoz paneli - suzuvchi oyna", lambda: self.set_equip_floating(
+            self.a_float_equip.isChecked()), "F9", "view.equip_float")
+        self.a_float_equip.setCheckable(True)
+        A(m, "AT jihoz panelini sichqoncha yoniga olib kelish", self.equip_palette_here, "F7", "view.equip_here")
 
         m = mb.addMenu("&Yordam")
         A(m, "Qo'llanma", self.show_help, QKeySequence.HelpContents, "help.manual")
@@ -396,19 +402,64 @@ class MainWindow(QMainWindow):
         lay.addSpacing(4)
         lay.addWidget(hline())
         lay.addSpacing(4)
+        # AT jihozlari: shu yerda yoki suzuvchi oynada (F9 - rejimni almashtirish)
+        self.equip_group = QWidget()
+        gl = QVBoxLayout(self.equip_group)
+        gl.setContentsMargins(0, 0, 0, 0)
+        gl.setSpacing(4)
+        gh = QHBoxLayout()
+        gh.setSpacing(0)
         g = QLabel("AT jihoz")
         g.setObjectName("toolGroup")
         g.setAlignment(Qt.AlignCenter)
-        lay.addWidget(g)
-        lay.addWidget(equip_grid({t.code: self.tool_actions[(EQUIP, t.code)] for t in EQUIPMENT_TYPES}))
+        fb = QToolButton()
+        fb.setObjectName("floatBtn")
+        fb.setText("⧉")
+        fb.setToolTip("Suzuvchi oyna qilish - chizma ustida istalgan joyga surib qo'yasiz (F9)")
+        fb.setFocusPolicy(Qt.NoFocus)
+        fb.clicked.connect(lambda: self.set_equip_floating(True))
+        gh.addWidget(g, 1)
+        gh.addWidget(fb)
+        gl.addLayout(gh)
+        gl.addWidget(equip_grid({t.code: self.tool_actions[(EQUIP, t.code)] for t in EQUIPMENT_TYPES}))
         plan = QCheckBox("Kerak\n(reja)")
         plan.setObjectName("planMode")
         plan.setToolTip(self.a_plan_mode.toolTip())
         plan.toggled.connect(self.a_plan_mode.setChecked)
         self.a_plan_mode.toggled.connect(plan.setChecked)
-        lay.addWidget(plan, 0, Qt.AlignHCenter)
+        gl.addWidget(plan, 0, Qt.AlignHCenter)
+        lay.addWidget(self.equip_group)
         lay.addStretch()
+        self.equip_palette = EquipPalette(self.view, {t.code: self.tool_actions[(EQUIP, t.code)]
+                                                      for t in EQUIPMENT_TYPES}, self.a_plan_mode, self.settings)
+        self.equip_palette.dock_requested.connect(lambda: self.set_equip_floating(False))
+        self.equip_palette.next_unknown.connect(self.select_next_unknown)
+        QTimer.singleShot(0, lambda: self.set_equip_floating(
+            self.settings.value("equip_palette/floating", False, type=bool), save=False))
         return panel
+
+    def set_equip_floating(self, on: bool, save: bool = True):
+        """AT jihoz paneli rejimi: chap panelda yoki chizma ustidagi suzuvchi oynada."""
+        self.equip_group.setVisible(not on)
+        self.a_float_equip.setChecked(on)
+        if on:
+            self.equip_palette.show()
+            self.equip_palette._fit()
+            self.equip_palette.restore_pos()
+            self.equip_palette.raise_()
+        else:
+            self.equip_palette.hide()
+        if save:
+            self.settings.setValue("equip_palette/floating", on)
+
+    def equip_palette_here(self):
+        """Suzuvchi panelni sichqoncha turgan joyga olib kelish (chizma ustida bo'lsa)."""
+        if not self.equip_palette.isVisible():
+            self.set_equip_floating(True)
+        p = self.view.mapFromGlobal(QCursor.pos())
+        if not self.view.rect().contains(p):
+            p = QPoint(self.view.width() // 2, self.view.height() // 2)
+        self.equip_palette.place_near(p)
 
     def _build_center(self) -> QVBoxLayout:
         col = QVBoxLayout()
@@ -974,6 +1025,7 @@ class MainWindow(QMainWindow):
         self.tiles["planned"].set(f"+{n_need}", "kerak", "warn" if n_need else "")
         self.tiles["planned"].setVisible(bool(n_need))
         unknown = counts.get("?", 0)
+        self.equip_palette.set_unknown(unknown)
         self.tiles["?"].set(str(unknown), "noma'lum (?)", "warn")
         self.tiles["?"].setVisible(bool(unknown))
         self.tiles["?"].setToolTip("Tasdiqlash ekranini ochish")
