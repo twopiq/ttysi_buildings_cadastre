@@ -24,6 +24,7 @@ from ..render import RenderOptions, equipment_counts, meter_px, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
 from .export_dialog import ExportDialog
+from .export_progress import ExportProgress, Job
 from .home import HomePage, new_building_path, org_of, orgs, remember, safe_file_name, scan, workspace
 from .canvas import (BG_ALIGN, BG_MOVE, DOME, DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIR_NAMES, STAIRS, WALL,
                      DoorItem, EquipmentItem, FloorScene, FloorView, RoomItem, WallItem)
@@ -72,6 +73,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.building = Building()
         self.path: str | None = None
+        self.export_progress: ExportProgress | None = None
         self.dirty = False
         self.floor: Floor | None = None
         self.histories: dict[str, History] = {}
@@ -1886,15 +1888,14 @@ class MainWindow(QMainWindow):
             self.path = new
             self.set_dirty(self.dirty)
 
-    def _write_excel(self, path: str, buildings, title: str | None = None):
+    def _write_excel(self, path: str, buildings, title: str | None = None) -> str | None:
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
-        try:
-            export_excel(path, buildings, title=title)
-        except Exception as e:
-            QMessageBox.critical(self, "Hisobot xatosi", str(e))
-            return
         self.settings.setValue("export_dir", os.path.dirname(path))
+        what = title or (buildings[0].name if len(buildings) == 1 else f"{len(buildings)} ta bino")
+        job = Job(f"Excel hisobot ({what})", path, lambda step: export_excel(path, buildings, title=title))
+        if not self._run_jobs(f"Excel hisobot — {what}", [job]):
+            return None
         self.statusBar().showMessage(f"Hisobot saqlandi: {path}", 10000)
         return path
 
@@ -2159,29 +2160,45 @@ class MainWindow(QMainWindow):
                     path += ext
                 paths = [path]
         self.settings.setValue("export_dir", os.path.dirname(paths[0]))
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            if kind == "pdf":
-                export_pdf(paths[0], self.building, list(floors), opts)
-            else:
-                for f, path in zip(floors, paths):
-                    if kind == "image":
-                        export_image(path, self.building, f, opts, size)
-                    elif kind == "svg":
-                        export_svg(path, self.building, f, opts)
-                    elif kind == "dxf":
-                        export_dxf(path, self.building, f, planned=opts.planned)
-        except Exception as e:
-            QApplication.restoreOverrideCursor()
-            QMessageBox.critical(self, "Eksport xatosi", str(e))
-            return []
-        QApplication.restoreOverrideCursor()
-        msg = f"Eksport qilindi: {paths[0]}" if len(paths) == 1 else \
-            f"Eksport qilindi: {len(paths)} ta fayl — {os.path.dirname(paths[0])}"
-        if kind == "dxf" and any(not f.scale_m_per_px for f in floors):
-            msg += "  (masshtab belgilanmagan etaj DXF'da piksellarda)"
-        self.statusBar().showMessage(msg, 10000)
-        return paths
+        b = self.building
+        names = {"image": "Rasm", "svg": "SVG", "pdf": "PDF", "dxf": "AutoCAD DXF"}
+        if kind == "pdf":
+            fl = list(floors)
+
+            def pdf(step, path=paths[0]):
+                export_pdf(path, b, fl, opts, progress=lambda i, f: step(f"{i + 1}/{len(fl)}-sahifa: {f.name}"))
+            jobs = [Job(f"{len(fl)} ta etaj" if len(fl) > 1 else fl[0].name, paths[0], pdf)]
+        else:
+            def one(f, path):
+                if kind == "image":
+                    return lambda step: export_image(path, b, f, opts, size)
+                if kind == "svg":
+                    return lambda step: export_svg(path, b, f, opts)
+                return lambda step: export_dxf(path, b, f, planned=opts.planned)
+            jobs = [Job(f.name, path, one(f, path)) for f, path in zip(floors, paths)]
+        title = f"{names[kind]} eksport — {b.name or 'bino'}"
+        saved = self._run_jobs(title, jobs)
+        if saved:
+            msg = f"Eksport qilindi: {saved[0]}" if len(saved) == 1 else \
+                f"Eksport qilindi: {len(saved)} ta fayl — {os.path.dirname(saved[0])}"
+            if kind == "dxf" and any(not f.scale_m_per_px for f in floors):
+                msg += "  (masshtab belgilanmagan etaj DXF'da piksellarda)"
+            self.statusBar().showMessage(msg, 10000)
+        return saved
+
+    def _run_jobs(self, title: str, jobs: list[Job]) -> list[str]:
+        """Eksport ishlarini jarayon oynasida bajaradi; oyna natija bilan ochiq qoladi."""
+        if self.export_progress is not None:
+            self.export_progress.close()
+        dlg = ExportProgress(title, jobs, self)
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.destroyed.connect(lambda *_: setattr(self, "export_progress", None)
+                              if self.export_progress is dlg else None)
+        self.export_progress = dlg
+        saved = dlg.run()
+        if dlg.state != "ok":
+            self.statusBar().showMessage(dlg.status.text(), 10000)
+        return saved
 
     def show_help(self):
         reg = registry()

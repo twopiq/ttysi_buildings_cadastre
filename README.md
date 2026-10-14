@@ -42,9 +42,12 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
 │     ├── 1-qavat                    (etajlar, ularning chizmasi, AT jihozlari
 │     ├── 2-qavat                     va kadastr rasmlari fayl ichida)
 │     └── 3-qavat
-└── 2-bino.ttysi
-      ├── 1-qavat
-      └── 2-qavat
+├── 2-bino.ttysi
+│     ├── 1-qavat
+│     └── 2-qavat
+└── 5-maktab/                     <- tashkilot = papka (bir nechta binoni birlashtiradi)
+      ├── 1-bino.ttysi
+      └── 2-bino.ttysi
 ```
 
 - Har bir bino alohida fayl, etajlar esa shu faylning ichida. Binoni boshqa kompyuterga ko'chirish
@@ -54,6 +57,14 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
 - Bosh sahifa papkadagi **barcha binolarni** o'zi ko'rsatadi; har bir kartada etajlar ro'yxati bor —
   etajni bossangiz, bino shu etajda ochiladi. Papkaga boshqa kompyuterdan `.ttysi` fayl ko'chirsangiz,
   u ham ro'yxatda paydo bo'ladi. Boshqa joydan ochilgan loyihalar "Boshqa joydagi loyihalar" bo'limida.
+- **Tashkilotlar.** Bir nechta binoni bitta tashkilotga birlashtirish: bosh sahifada **Yangi tashkilot** —
+  nomini yozasiz va birlashtiriladigan binolarni belgilaysiz. Tashkilot bosh sahifada alohida bo'lim
+  bo'lib chiqadi (binolar, etajlar va jihozlar soni jami bilan). Bo'lim sarlavhasida: **+ Bino** (yangi
+  bino shu tashkilot ichida), **Excel hisobot** (tashkilotning barcha binolari bitta faylda, oxirida
+  tashkilot bo'yicha jami) va **⋯** menyusi: binolarni qo'shish, nomini o'zgartirish, papkani ochish,
+  tarqatish (binolar o'chirilmaydi, tashkilotsiz bo'lib qoladi). Bino kartasida o'ng tugma —
+  **Tashkilotga ko'chirish** yoki **Tashkilotdan chiqarish**. Yangi bino oynasida ham tashkilotni
+  tanlash mumkin. Muharrirda bino nomi oldida tashkilot nomi ko'rinadi.
 - Muharrirda bino nomi yonidagi **▾** — boshqa binoga tez o'tish.
 - Saqlash xavfsiz: fayl avval vaqtinchalik nusxaga yoziladi, keyin almashtiriladi (saqlash vaqtida
   dastur yopilib qolsa ham eski fayl buzilmaydi).
@@ -196,6 +207,12 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
    - DXF'da rejadagi jihozlar alohida `AT_<kod>_KERAK` qatlamida, punktir chiziq bilan chiqadi.
      Eshiklar `ESHIKLAR`, zina pog'onalari `ZINALAR`, alohida devorlar esa `DEVORLAR` qatlamida
      (haqiqiy qalinlikda) bo'ladi.
+   - **Eksport jarayoni oynasi:** qaysi etaj/sahifa yozilayotgani va umumiy holat ko'rinib turadi.
+     Oxirida natija: **"Eksport tugadi ✓"** (yashil), **"Qisman bajarildi"** (sariq) yoki
+     **"Eksport bajarilmadi"** (qizil) va har bir fayl bo'yicha xabar — masalan "fayl boshqa dasturda
+     ochiq, yoping va qayta urinib ko'ring". **Qayta urinish** faqat xato bo'lgan fayllarni qayta
+     yozadi; **Faylni ochish** / **Papkani ochish** tayyor natijani ochadi. Bir fayldagi xato
+     qolganlarini to'xtatmaydi; "Bekor qilish" joriy fayl tugagach to'xtatadi.
 
 Loyiha bitta `.ttysi` faylda saqlanadi: bino, barcha etajlar va kadastr rasmlari shu faylning ichida bo'ladi.
 

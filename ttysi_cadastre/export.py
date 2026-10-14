@@ -64,14 +64,19 @@ def export_svg(path: str, building: Building, floor: Floor, opts: RenderOptions)
 
 
 def export_pdf(path: str, building: Building, floors: list[Floor], opts: RenderOptions,
-               page: str = "A3") -> None:
-    """PDF - har bir etaj alohida sahifada (bitta yoki bir nechta etaj)."""
+               page: str = "A3", progress=None) -> None:
+    """PDF - har bir etaj alohida sahifada (bitta yoki bir nechta etaj).
+
+    progress(i, floor) - har bir sahifa oldidan chaqiriladi (jarayon oynasi uchun).
+    """
     writer = QPdfWriter(path)
     writer.setResolution(200)
     size = QPageSize(QPageSize.A3 if page == "A3" else QPageSize.A4)
     writer.setTitle(building.name)
     p = None
     for i, floor in enumerate(floors):
+        if progress is not None:
+            progress(i, floor)
         orient = QPageLayout.Landscape if floor.width >= floor.height else QPageLayout.Portrait
         writer.setPageLayout(QPageLayout(size, orient, QMarginsF(0, 0, 0, 0)))
         if p is None:

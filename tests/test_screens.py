@@ -119,6 +119,36 @@ def test_export_dialog_and_run(qapp, tmp_path):
     _close(w)
 
 
+def test_export_progress_status(qapp, tmp_path):
+    """Eksport holati: tugadi / qisman / xato, qayta urinish."""
+    from ttysi_cadastre.render import RenderOptions
+    b = _building()
+    w = _window(b)
+    ok = [str(tmp_path / "a.svg"), str(tmp_path / "b.svg")]
+    assert w.run_export("svg", b.floors, RenderOptions(), paths=ok) == ok
+    d = w.export_progress
+    assert d.isVisible() and d.state == "ok" and "tugadi" in d.status.text()
+    assert d.b_close.text() == "Yopish" and not d.b_retry.isVisible() and d.list.count() == 2
+
+    missing = tmp_path / "yoq"                                # papka yo'q - ikkinchi fayl xato
+    paths = [str(tmp_path / "c.svg"), str(missing / "d.svg")]
+    assert w.run_export("svg", b.floors, RenderOptions(), paths=paths) == paths[:1]
+    d = w.export_progress
+    assert d.state == "partial" and "1 tasida xato" in d.status.text()
+    assert d.failed()[0].error.startswith("Papka topilmadi") and d.b_retry.isVisible()
+    missing.mkdir()
+    assert d.run() == paths and d.state == "ok"              # qayta urinish - faqat xatolisi qayta yoziladi
+
+    assert w.run_export("pdf", b.floors, RenderOptions(), paths=[str(tmp_path / "x" / "y.pdf")]) == []
+    assert w.export_progress.state == "failed" and "bajarilmadi" in w.export_progress.status.text()
+    assert "bajarilmadi" in w.statusBar().currentMessage()
+
+    xl = w._write_excel(str(tmp_path / "h"), [b])
+    assert xl.endswith("h.xlsx") and w.export_progress.state == "ok"
+    w.export_progress.close()
+    _close(w)
+
+
 def test_import_screen_with_pdf(qapp, tmp_path):
     from PySide6.QtCore import QMarginsF, QRectF
     from PySide6.QtGui import QPageLayout, QPageSize, QPainter, QPdfWriter
