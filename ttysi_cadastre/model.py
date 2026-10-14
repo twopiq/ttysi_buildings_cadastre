@@ -26,6 +26,7 @@ class Room:
     name: str = ""
     id: str = field(default_factory=new_id)
     direction: str = ""         # zina yo'nalishi (ko'tarilish): "" avtomatik, right/left/down/up
+    shape: str = ""             # "ellipse" - doira/ellips (gumbaz): burchaklari emas, o'lchami tahrirlanadi
 
     def centroid(self) -> tuple[float, float]:
         pts = self.points
@@ -151,7 +152,7 @@ class Floor:
         self.symbol_scale = d.get("symbol_scale", 1.0)
         self.rooms = [Room(points=[tuple(p) for p in r["points"]], kind=r.get("kind", "room"),
                            name=r.get("name", ""), id=r.get("id") or new_id(),
-                           direction=r.get("direction", ""))
+                           direction=r.get("direction", ""), shape=r.get("shape", ""))
                       for r in d.get("rooms", [])]
         self.equipment = [Equipment(code=e["code"], x=e["x"], y=e["y"], note=e.get("note", ""),
                                     id=e.get("id") or new_id(), status=e.get("status", "existing"))

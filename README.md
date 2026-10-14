@@ -122,6 +122,12 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
    - `Z` — **zina**: maydonini to'rtburchak qilib torting. Ichida pog'onalar va yo'nalish strelkasi
      chiziladi. **Yo'nalishi** (strelka — ko'tarilish tomoni) qo'lda o'zgartiriladi: o'ngdagi panelda
      "Zina yo'nalishi" (→ ↓ ← ↑ yoki avtomatik), **↻ 90°** tugmasi yoki o'ng tugma menyusi;
+   - `O` — **gumbaz (doira bino)**, masalan institutga kirish-chiqish (o'tish) binolari: sichqonchani
+     bosib torting — doira chiziladi (`Shift` — ellips). Gumbaz ichida punktir halqa bilan belgilanadi,
+     DXF'da `GUMBAZ` qatlamida. Doiraning burchak nuqtalari yo'q — o'lchami atrofidagi tutqichlar yoki
+     paneldagi "eni × bo'yi" bilan o'zgartiriladi. Kadastr rasmida aylana devorli bino bo'lsa,
+     **avtomatik chizish uni o'zi topadi**: ichki devor chizig'i bo'yicha doira xona va devordagi
+     kirish-chiqish bo'shliqlariga eshiklar (kengi ikki tabaqali) qo'yiladi;
    - **Eshik ochilish tomoni**: eshikni devorning qaysi tarafiga bossangiz (yoki sudrab o'tkazsangiz),
      o'sha tarafga ochiladi. Ikki marta bosish — tomonini almashtirish. **Kengligi**: eshik chetidagi
      oq tutqichlarni sudrang yoki o'ngdagi panelda aniq qiymat (0.5–4 m) kiriting;

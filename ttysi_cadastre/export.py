@@ -11,8 +11,8 @@ from PySide6.QtSvg import QSvgGenerator
 from .equipment import EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
 from .geometry import door_lines, stair_lines
 from .model import Building, Floor
-from .render import (RenderOptions, draw_page, is_wide, label_px, meter_px, room_label, symbol_radius,
-                     wall_width)
+from .render import (RenderOptions, dome_ring, draw_page, is_wide, label_px, meter_px, room_label,
+                     symbol_radius, wall_width)
 
 
 def _page_size(floor: Floor, long_side: int, legend: bool) -> tuple[int, int]:
@@ -129,6 +129,7 @@ def export_dxf(path: str, building: Building, floor: Floor, planned: bool = True
     # Eshiklar va zina pog'onalari
     doc.layers.add("ESHIKLAR", color=30)
     doc.layers.add("ZINALAR", color=8)
+    doc.layers.add("GUMBAZ", color=8, linetype="DASHED")
     ww = wall_width(floor)
     doc.layers.add("DEVORLAR", color=7)
     for wall in floor.walls:
@@ -141,6 +142,9 @@ def export_dxf(path: str, building: Building, floor: Floor, planned: bool = True
         if room.kind == "stairs":
             for ln in stair_lines(room.points, meter_px(floor) * 0.3, room.direction):
                 msp.add_lwpolyline([pt(x, y) for x, y in ln], dxfattribs={"layer": "ZINALAR"})
+        elif room.kind == "dome":
+            msp.add_lwpolyline([pt(x, y) for x, y in dome_ring(room, floor)], close=True,
+                               dxfattribs={"layer": "GUMBAZ"})
 
     # AT jihozlari - bloklar sifatida (CAD'da sanash va almashtirish oson)
     r = symbol_radius(floor) * k

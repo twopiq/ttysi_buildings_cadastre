@@ -111,6 +111,21 @@ def draw_stairs(p: QPainter, room, floor: Floor) -> None:
         p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in ln]))
 
 
+def dome_ring(room, floor: Floor) -> list[tuple[float, float]]:
+    """Gumbaz belgisi: xona ichidagi punktir halqa (devordan ~0.6 m ichkarida)."""
+    cx, cy = room.centroid()
+    rad = max(1.0, sum(((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 for x, y in room.points) / len(room.points))
+    k = max(0.5, 1 - meter_px(floor) * 0.6 / rad)
+    return [(cx + (x - cx) * k, cy + (y - cy) * k) for x, y in room.points]
+
+
+def draw_dome(p: QPainter, room, floor: Floor) -> None:
+    pen = QPen(QColor("#5c6b7a"), max(1.0, wall_width(floor) * 0.18), Qt.DashLine)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in dome_ring(room, floor)]))
+
+
 def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImage | None = None) -> None:
     """Etajni uning o'z koordinatalarida (piksellarda) chizadi."""
     if opts.background and background is not None and not background.isNull():
@@ -127,6 +142,8 @@ def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImag
     for room in floor.rooms:
         if room.kind == "stairs":
             draw_stairs(p, room, floor)
+        elif room.kind == "dome":
+            draw_dome(p, room, floor)
     pen = QPen(QColor("#212121"), ww)
     pen.setJoinStyle(Qt.MiterJoin)
     p.setPen(pen)

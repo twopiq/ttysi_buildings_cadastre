@@ -15,13 +15,14 @@ from PySide6.QtWidgets import (QGraphicsItem, QInputDialog,
 
 from ..equipment import ROOM_KINDS, get_type
 from ..geometry import STAIR_DIRECTIONS, auto_stair_direction, nearest_wall, rotate_points
+from ..detection import ellipse_points
 from ..model import Door, Equipment, Floor, Room, Wall
-from ..render import (door_wall_thickness, draw_door, draw_equipment_symbol, draw_stairs, label_px,
+from ..render import (door_wall_thickness, draw_dome, draw_door, draw_equipment_symbol, draw_stairs, label_px,
                       meter_px, room_label, symbol_radius, wall_width)
 
 # Asboblar
-SELECT, ROOM_POLY, ROOM_RECT, EQUIP, SPLIT, SCALE, PAN, DOOR, STAIRS, WALL = (
-    "select", "room_poly", "room_rect", "equip", "split", "scale", "pan", "door", "stairs", "wall")
+SELECT, ROOM_POLY, ROOM_RECT, EQUIP, SPLIT, SCALE, PAN, DOOR, STAIRS, WALL, DOME = (
+    "select", "room_poly", "room_rect", "equip", "split", "scale", "pan", "door", "stairs", "wall", "dome")
 
 SNAP_PX = 10   # ekran piksellarida yopishish masofasi
 
@@ -248,6 +249,11 @@ class RoomItem(Resizable, QGraphicsPolygonItem):
             painter.save()
             draw_stairs(painter, Room(points=pts, kind="stairs", direction=self.room.direction), self.floor)
             painter.restore()
+        elif self.room.kind == "dome":
+            pts = [(q.x(), q.y()) for q in self.polygon()]
+            painter.save()
+            draw_dome(painter, Room(points=pts, kind="dome"), self.floor)
+            painter.restore()
 
     def update_label(self):
         self.label.setText(room_label(self.room, self.floor))
@@ -290,7 +296,7 @@ class RoomItem(Resizable, QGraphicsPolygonItem):
                 h.scene().removeItem(h)
         self.handles = []
         self.show_resize(on)
-        if on:
+        if on and self.room.shape != "ellipse":      # doira - burchaklari emas, o'lchami tahrirlanadi
             for i, p in enumerate(self.polygon()):
                 h = VertexHandle(self, i)
                 h.setFlag(QGraphicsItem.ItemSendsGeometryChanges, False)
@@ -358,7 +364,8 @@ class RoomItem(Resizable, QGraphicsPolygonItem):
         self.update_label()
 
     def mouseDoubleClickEvent(self, event):
-        self.insert_vertex_at(event.scenePos())
+        if self.room.shape != "ellipse":
+            self.insert_vertex_at(event.scenePos())
 
     def contextMenuEvent(self, event):
         scene: FloorScene = self.scene()
@@ -382,6 +389,7 @@ class RoomItem(Resizable, QGraphicsPolygonItem):
                 a.setChecked(d == self.room.direction)
                 dirs[a] = d
         add_v = menu.addAction("Shu yerga burchak qo'shish")
+        add_v.setEnabled(self.room.shape != "ellipse")
         rotations = add_rotate_menu(menu)
         menu.addSeparator()
         merge = menu.addAction("Tanlangan xonalarni birlashtirish")
@@ -879,8 +887,9 @@ class FloorScene(QGraphicsScene):
     def selected_equipment(self) -> list[EquipmentItem]:
         return [i for i in self.selectedItems() if isinstance(i, EquipmentItem)]
 
-    def add_room(self, points, kind="room") -> RoomItem:
-        room = Room(points=[(p.x(), p.y()) if isinstance(p, QPointF) else p for p in points], kind=kind)
+    def add_room(self, points, kind="room", shape="") -> RoomItem:
+        room = Room(points=[(p.x(), p.y()) if isinstance(p, QPointF) else p for p in points], kind=kind,
+                    shape=shape)
         self.floor.rooms.append(room)
         item = RoomItem(room, self.floor)
         self.addItem(item)
@@ -1046,6 +1055,7 @@ class FloorView(QGraphicsView):
             DOOR: "Eshik: devorning ochilishi kerak bo'lgan tarafiga bosing. Kengligi - chetidagi tutqichlar; "
                   "ikki marta bosish - tomonini almashtirish.",
             STAIRS: "Zina: sichqonchani bosib, zina maydonini torting.",
+            DOME: "Gumbaz (doira bino): sichqonchani bosib torting - doira; Shift - ellips.",
             EQUIP: f"{get_type(self.equip_code).name}: joyini bosing.",
             SPLIT: "Xonani bo'lish: bo'lish chizig'ining ikki nuqtasini bosing.",
             SCALE: "Masshtab: uzunligi ma'lum bo'lgan devorning ikki uchini bosing.",
@@ -1071,6 +1081,8 @@ class FloorView(QGraphicsView):
         path = QPainterPath()
         if self.tool in (ROOM_RECT, STAIRS) and self.rect_start is not None and cursor is not None:
             path.addRect(QRectF(self.rect_start, cursor).normalized())
+        elif self.tool == DOME and self.rect_start is not None and cursor is not None:
+            path.addEllipse(self._dome_rect(cursor))
         elif self.points:
             path.moveTo(self.points[0])
             for q in self.points[1:]:
@@ -1142,7 +1154,7 @@ class FloorView(QGraphicsView):
                 return
             self.points.append(p)
             self._update_preview(p)
-        elif self.tool in (ROOM_RECT, STAIRS):
+        elif self.tool in (ROOM_RECT, STAIRS, DOME):
             self.rect_start = p
         elif self.tool == DOOR:
             self.fscene.add_door(self.mapToScene(event.position().toPoint()))
@@ -1171,7 +1183,8 @@ class FloorView(QGraphicsView):
             p = self._ortho_lock(self._snapped(event.position().toPoint()),
                                  bool(event.modifiers() & Qt.ShiftModifier))
             self._update_preview(p)
-        elif self.tool in (ROOM_RECT, STAIRS) and self.rect_start is not None:
+        elif self.tool in (ROOM_RECT, STAIRS, DOME) and self.rect_start is not None:
+            self._dome_shift = bool(event.modifiers() & Qt.ShiftModifier)
             self._update_preview(self._snapped(event.position().toPoint()))
         super().mouseMoveEvent(event)
 
@@ -1187,7 +1200,27 @@ class FloorView(QGraphicsView):
                 self.fscene.add_room([r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft()],
                                      kind="stairs" if self.tool == STAIRS else "room")
             return
+        if self.tool == DOME and self.rect_start is not None and event.button() == Qt.LeftButton:
+            self._dome_shift = bool(event.modifiers() & Qt.ShiftModifier)
+            r = self._dome_rect(self._snapped(event.position().toPoint()))
+            self.cancel_drawing()
+            if r.width() > 3 and r.height() > 3:
+                c = r.center()
+                self.fscene.add_room(ellipse_points(c.x(), c.y(), r.width() / 2, r.height() / 2),
+                                     kind="dome", shape="ellipse")
+            return
         super().mouseReleaseEvent(event)
+
+    def _dome_rect(self, cursor: QPointF) -> QRectF:
+        """Gumbaz: torilgan to'rtburchakka sig'adigan doira (Shift - erkin ellips)."""
+        r = QRectF(self.rect_start, cursor).normalized()
+        if not getattr(self, "_dome_shift", False):
+            side = max(r.width(), r.height())
+            sx = 1 if cursor.x() >= self.rect_start.x() else -1
+            sy = 1 if cursor.y() >= self.rect_start.y() else -1
+            r = QRectF(self.rect_start, QPointF(self.rect_start.x() + sx * side,
+                                                self.rect_start.y() + sy * side)).normalized()
+        return r
 
     def mouseDoubleClickEvent(self, event):
         if self.tool in (ROOM_POLY, WALL):

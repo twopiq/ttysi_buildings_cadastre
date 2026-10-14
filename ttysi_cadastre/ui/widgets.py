@@ -20,6 +20,7 @@ ICONS = {
     "wall": '<path d="M5 5v14h14" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter"/>',
     "door": '<path d="M3 20h18"/><path d="M6 20V8"/><path d="M6 8a12 12 0 0 1 12 12"/>',
     "stairs": '<rect x="5" y="3" width="14" height="18"/><path d="M5 7h14M5 11h14M5 15h14"/>',
+    "dome": '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.5" stroke-dasharray="2 2"/>',
     "split": '<rect x="4" y="5" width="16" height="14"/><path d="M12 3v18" stroke-dasharray="3 3"/>',
     "undo": '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
     "redo": '<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',

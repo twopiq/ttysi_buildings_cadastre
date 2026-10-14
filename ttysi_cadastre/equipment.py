@@ -38,6 +38,7 @@ ROOM_KINDS = {
     "corridor": ("Koridor", "#fff8e1"),
     "computer": ("Kompyuter xona", "#e8f5e9"),
     "stairs": ("Zinapoya", "#eceff1"),
+    "dome": ("Gumbaz (o'tish binosi)", "#e3f2fd"),
     "wc": ("Hojatxona", "#e0f7fa"),
     "other": ("Boshqa", "#f3e5f5"),
 }

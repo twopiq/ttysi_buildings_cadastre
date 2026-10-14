@@ -19,14 +19,14 @@ from ..detection import DetectParams, decode_image, detect, encode_jpg, limit_si
 from ..equipment import BY_KEY, EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
 from ..export import export_dxf, export_image, export_pdf, export_svg
 from ..geometry import merge_rooms, split_room
-from ..model import Building, Equipment, Floor, Room
+from ..model import Building, Door, Equipment, Floor, Room
 from ..render import RenderOptions, equipment_counts, meter_px, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
 from .export_dialog import ExportDialog
 from .home import HomePage, new_building_path, remember, safe_file_name, scan, workspace
-from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIR_NAMES, STAIRS, WALL, DoorItem,
-                     EquipmentItem, FloorScene, FloorView, RoomItem, WallItem)
+from .canvas import (DOME, DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIR_NAMES, STAIRS, WALL,
+                     DoorItem, EquipmentItem, FloorScene, FloorView, RoomItem, WallItem)
 from .import_dialog import ImportDialog, RedetectDialog, image_paper_mm_per_px
 from .review_dialog import ReviewDialog
 from .shortcuts import ShortcutsDialog, display, registry
@@ -227,6 +227,7 @@ class MainWindow(QMainWindow):
         tool("Devor", "L", WALL, tip="Devor chizish (Enter - tugatish)")
         tool("Eshik", "D", DOOR, tip="Eshik qo'yish")
         tool("Zina", "Z", STAIRS, tip="Zinapoya chizish")
+        tool("Gumbaz", "O", DOME, tip="Gumbaz / doira bino (o'tish binosi): torting, Shift - ellips")
         tool("Bo'lish", "B", SPLIT, tip="Xonani bo'lish")
         for t in EQUIPMENT_TYPES:
             tool(t.label, None, EQUIP, t.code, tip=f"{t.name} qo'yish")
@@ -1400,11 +1401,19 @@ class MainWindow(QMainWindow):
     def apply_detection(self, floor: Floor, img, params: DetectParams, keep_eq: bool,
                         numbering: bool = True) -> str:
         res = detect(img, params)
-        floor.rooms = [Room(points=r.points, kind=r.kind, name=str(i) if numbering else "")
+        floor.rooms = [Room(points=r.points, kind=r.kind, name=str(i) if numbering else "", shape=r.shape)
                        for i, r in enumerate(res.rooms, 1)]
+        # doira binolar kirishlaridagi eshiklar (mavjud eshik bilan ustma-ust tushmasa)
+        for d in res.doors:
+            if all(math.hypot(d.x - o.x, d.y - o.y) > d.width for o in floor.doors):
+                wide = d.width > meter_px(floor) * 1.6          # keng kirish - ikki tabaqali
+                floor.doors.append(Door(x=d.x, y=d.y, angle=d.angle, width=d.width, leaves=2 if wide else 1))
         kept = [e for e in floor.equipment if e.code != "?"] if keep_eq else []
         floor.equipment = kept + [Equipment(code="?", x=x, y=y) for x, y in res.marks]
-        return (f"Topildi: {len(res.rooms)} ta xona/koridor, {len(res.marks)} ta belgi nomzodi. "
+        domes = sum(1 for r in res.rooms if r.shape == "ellipse")
+        return (f"Topildi: {len(res.rooms)} ta xona/koridor"
+                + (f" (shundan {domes} ta gumbaz, {len(res.doors)} ta kirish)" if domes else "")
+                + f", {len(res.marks)} ta belgi nomzodi. "
                 "Chizmani tekshirib, tuzating.")
 
     def redetect(self):
