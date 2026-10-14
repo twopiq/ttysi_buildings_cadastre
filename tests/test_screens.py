@@ -197,3 +197,61 @@ def test_buildings_folder_and_floors(qapp, tmp_path):
     assert names[0].startswith("1-bino") and w.switch_menu.actions()[0].isChecked()
     assert names[1].startswith("2-bino")
     _close(w)
+
+
+def test_organizations(qapp, tmp_path):
+    """Tashkilot: bir nechta binoni birlashtirish, ko'chirish, nomini o'zgartirish, hisobot, tarqatish."""
+    from openpyxl import load_workbook
+    from ttysi_cadastre.ui.home import ProjectCard, WORKSPACE_KEY, org_of, orgs, recent, scan
+    ws = tmp_path / "Binolar"
+    w = _window()
+    w.settings.setValue(WORKSPACE_KEY, str(ws))
+    w.settings.remove("recent/projects")
+    paths = []
+    for n in (1, 2, 3):
+        paths.append(w.create_building(f"{n}-bino"))
+        w.building.floors.append(Floor(name="1-qavat", width=100, height=100))
+        w.building.floors[0].equipment.append(Equipment(code="K", x=5, y=5))
+        w.save_project()
+    w.dirty = False
+    w.show_home()
+    h = w.home
+
+    org = h.create_org("5-maktab", paths[:2])                # 1 va 2-bino birlashtirildi
+    assert os.path.isdir(org) and os.path.basename(org) == "5-maktab"
+    o = orgs(str(ws))
+    assert [x["name"] for x in o] == ["5-maktab"]
+    assert [b["name"] for b in o[0]["buildings"]] == ["1-bino", "2-bino"]
+    assert [b["name"] for b in scan(str(ws))] == ["3-bino"]
+    assert w.path == os.path.join(org, "3-bino.ttysi") or w.path == paths[2]   # ochiq bino (3) joyida
+    assert all(os.path.dirname(i["path"]) in (org, str(ws)) for i in recent(w.settings))
+    cards = [c for c in h.cards if isinstance(c, ProjectCard)]
+    assert len(cards) == 3 and not h.other_title.isVisible()
+
+    p3 = h.move(paths[2], org)                                # 3-bino ham qo'shildi
+    assert os.path.dirname(p3) == org and w.path == p3     # ochiq loyiha yo'li yangilandi
+    assert org_of(w.settings, p3) == org
+    w.open_project(p3)
+    assert w.project_name.text() == "5-maktab › 3-bino"
+    w.show_home()
+
+    new_org = h.rename_org(org, "5-maktab (yangi)")
+    assert os.path.basename(new_org) == "5-maktab (yangi)" and w.path == os.path.join(new_org, "3-bino.ttysi")
+
+    out = w.export_excel_org(new_org, str(tmp_path / "hisobot.xlsx"))
+    rows = list(load_workbook(out)["Umumiy"].iter_rows(values_only=True))
+    assert {r[0] for r in rows[1:-1]} == {"1-bino", "2-bino", "3-bino"}
+    assert rows[-1][0] == "5-MAKTAB (YANGI) - JAMI" and 3 in rows[-1]
+
+    w.create_building("4-bino", org=new_org)                  # yangi bino tashkilot ichida
+    assert os.path.dirname(w.path) == new_org
+    w.dirty = False
+    w.fill_switch_menu()
+    sub = [a for a in w.switch_menu.actions() if a.menu()]
+    assert sub and sub[0].text().startswith("5-maktab (yangi)")
+
+    h.dissolve_org(new_org, confirm=False)                    # binolar o'chmaydi
+    assert not os.path.exists(new_org) and orgs(str(ws)) == []
+    assert [b["name"] for b in scan(str(ws))] == ["1-bino", "2-bino", "3-bino", "4-bino"]
+    assert os.path.dirname(w.path) == str(ws)
+    _close(w)

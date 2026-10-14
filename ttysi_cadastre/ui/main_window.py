@@ -24,7 +24,7 @@ from ..render import RenderOptions, equipment_counts, meter_px, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
 from .export_dialog import ExportDialog
-from .home import HomePage, new_building_path, remember, safe_file_name, scan, workspace
+from .home import HomePage, new_building_path, org_of, orgs, remember, safe_file_name, scan, workspace
 from .canvas import (BG_ALIGN, BG_MOVE, DOME, DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, STAIR_NAMES, STAIRS, WALL,
                      DoorItem, EquipmentItem, FloorScene, FloorView, RoomItem, WallItem)
 from .import_dialog import ImportDialog, RedetectDialog, image_paper_mm_per_px, ratio_presets
@@ -101,6 +101,9 @@ class MainWindow(QMainWindow):
         self.home.new_building.connect(self.new_building)
         self.home.new_from_file.connect(self.new_building)
         self.home.open_floor.connect(self.open_floor)
+        self.home.new_building_in.connect(lambda org: self.new_building(org=org))
+        self.home.org_report.connect(self.export_excel_org)
+        self.home.moved.connect(self.on_building_moved)
         self.pages.addWidget(self.home)
         self.editor = self.build_editor()
         self.pages.addWidget(self.editor)
@@ -144,6 +147,7 @@ class MainWindow(QMainWindow):
         ex.addSeparator()
         A(ex, "Excel hisobot - joriy bino...", self.export_excel_current, "Ctrl+R", "export.excel")
         A(ex, "Excel hisobot - bir nechta bino...", self.export_excel_many, None, "export.excel_many")
+        A(ex, "Excel hisobot - butun tashkilot...", lambda: self.export_excel_org(), None, "export.excel_org")
         m.addSeparator()
         A(m, "Chiqish", self.close, QKeySequence.Quit, "file.quit")
 
@@ -879,7 +883,8 @@ class MainWindow(QMainWindow):
         self.dirty = d
         name = os.path.basename(self.path) if self.path else "Nomsiz"
         self.setWindowTitle(f"{'*' if d else ''}{name} — TTYSI Binolar kadastri")
-        self.project_name.setText(self.building.name or "Nomsiz bino")
+        org = org_of(self.settings, self.path)
+        self.project_name.setText((f"{os.path.basename(org)} › " if org else "") + (self.building.name or "Nomsiz bino"))
         if d:
             state = "Saqlanmagan o'zgarishlar bor"
         elif not self.path:
@@ -1846,16 +1851,52 @@ class MainWindow(QMainWindow):
         if path:
             self._write_excel(path, buildings)
 
-    def _write_excel(self, path: str, buildings):
+    def export_excel_org(self, org: str | None = None, path: str | None = None) -> str | None:
+        """Tashkilotning barcha binolari bo'yicha bitta Excel hisobot."""
+        org = org or org_of(self.settings, self.path)
+        if not org:
+            QMessageBox.information(self, "Tashkilot hisoboti",
+                                    "Bu bino tashkilotga kirmagan. Bosh sahifada binoni tashkilotga ko'chiring "
+                                    "(kartochkada o'ng tugma) yoki \"Yangi tashkilot\" yarating.")
+            return None
+        buildings = []
+        cur = os.path.normcase(os.path.abspath(self.path)) if self.path else ""
+        for it in scan(org):
+            if it["path"] and os.path.normcase(it["path"]) == cur:
+                buildings.append(self.building)          # saqlanmagan o'zgarishlar ham kirsin
+                continue
+            try:
+                buildings.append(Building.load(it["path"]))
+            except Exception as e:
+                QMessageBox.warning(self, "Xato", f"{os.path.basename(it['path'])}: {e}")
+        if not buildings:
+            QMessageBox.information(self, "Tashkilot hisoboti", "Tashkilotda hali bino yo'q.")
+            return None
+        name = os.path.basename(org)
+        if path is None:
+            default = os.path.join(self.settings.value("export_dir", ""), f"{safe_file_name(name)} - hisobot.xlsx")
+            path, _ = QFileDialog.getSaveFileName(self, f"{name}: Excel hisobot", default, "Excel (*.xlsx)")
+            if not path:
+                return None
+        return self._write_excel(path, buildings, title=name)
+
+    def on_building_moved(self, old: str, new: str):
+        """Bosh sahifada bino tashkilotga ko'chirildi - ochiq loyiha yo'lini yangilash."""
+        if self.path and os.path.normcase(os.path.abspath(self.path)) == os.path.normcase(old):
+            self.path = new
+            self.set_dirty(self.dirty)
+
+    def _write_excel(self, path: str, buildings, title: str | None = None):
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
         try:
-            export_excel(path, buildings)
+            export_excel(path, buildings, title=title)
         except Exception as e:
             QMessageBox.critical(self, "Hisobot xatosi", str(e))
             return
         self.settings.setValue("export_dir", os.path.dirname(path))
         self.statusBar().showMessage(f"Hisobot saqlandi: {path}", 10000)
+        return path
 
     def add_empty_floor(self):
         self.building.floors.append(Floor(name=self.next_floor_name()))
@@ -1924,11 +1965,12 @@ class MainWindow(QMainWindow):
         self.home.refresh()
         self.pages.setCurrentWidget(self.home)
 
-    def new_building(self, path: str | None = None):
-        """Yangi bino: nomini so'rab, binolar papkasida fayl yaratadi va darhol etaj yuklashni ochadi."""
+    def new_building(self, path: str | None = None, org: str | None = None):
+        """Yangi bino: nomini so'rab, binolar papkasida (yoki tashkilotda) fayl yaratadi va etaj yuklashni ochadi."""
         if not self.maybe_save():
             return
-        n = len(scan(workspace(self.settings))) + 1
+        all_orgs = orgs(workspace(self.settings))
+        n = len(scan(org or workspace(self.settings))) + 1
         dlg = QDialog(self)
         dlg.setWindowTitle("Yangi bino")
         lay = QVBoxLayout(dlg)
@@ -1940,9 +1982,21 @@ class MainWindow(QMainWindow):
         addr.setPlaceholderText("ixtiyoriy")
         lay.addWidget(field("Bino nomi", name))
         lay.addWidget(field("Manzil", addr))
-        where = QLabel(f"Saqlanadi: {workspace(self.settings)}")
+        org_box = QComboBox()
+        org_box.addItem("— tashkilotsiz —", None)
+        for o in all_orgs:
+            org_box.addItem(o["name"], o["path"])
+            if org and os.path.normcase(o["path"]) == os.path.normcase(os.path.abspath(org)):
+                org_box.setCurrentIndex(org_box.count() - 1)
+        org_box.setVisible(bool(all_orgs))
+        if all_orgs:
+            lay.addWidget(field("Tashkilot", org_box))
+        where = QLabel()
         where.setObjectName("muted")
         where.setWordWrap(True)
+        org_box.currentIndexChanged.connect(
+            lambda *_: where.setText(f"Saqlanadi: {org_box.currentData() or workspace(self.settings)}"))
+        where.setText(f"Saqlanadi: {org_box.currentData() or workspace(self.settings)}")
         lay.addWidget(where)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.button(QDialogButtonBox.Ok).setText("Yaratish va etaj yuklash")
@@ -1954,13 +2008,13 @@ class MainWindow(QMainWindow):
         dlg.resize(440, dlg.sizeHint().height())
         if dlg.exec() != QDialog.Accepted:
             return
-        self.create_building(name.text().strip() or f"{n}-bino", addr.text().strip())
+        self.create_building(name.text().strip() or f"{n}-bino", addr.text().strip(), org_box.currentData())
         self.add_floor_from_image(path)
 
-    def create_building(self, name: str, address: str = "") -> str:
-        """Binolar papkasida yangi bino fayli (darhol saqlanadi) va uni muharrirda ochish."""
+    def create_building(self, name: str, address: str = "", org: str | None = None) -> str:
+        """Binolar papkasida (org - tashkilot papkasida) yangi bino fayli (darhol saqlanadi) va uni ochish."""
         self.building = Building(name=name, address=address)
-        self.path = new_building_path(self.settings, name)
+        self.path = new_building_path(self.settings, name, org)
         self.histories.clear()
         self.bg_cache.clear()
         self.building.save(self.path)
@@ -1979,11 +2033,21 @@ class MainWindow(QMainWindow):
         m.clear()
         items = scan(workspace(self.settings))
         cur = os.path.normcase(os.path.abspath(self.path)) if self.path else ""
-        for it in items:
-            a = m.addAction(f"{it['name']}  ·  {it['floors']} etaj", lambda p=it["path"]: self.open_project(p))
+
+        def add(menu, it):
+            a = menu.addAction(f"{it['name']}  ·  {it['floors']} etaj", lambda p=it["path"]: self.open_project(p))
             a.setCheckable(True)
             a.setChecked(os.path.normcase(it["path"]) == cur)
-        if items:
+        for it in items:
+            add(m, it)
+        all_orgs = orgs(workspace(self.settings))
+        for o in all_orgs:
+            sub = m.addMenu(f"{o['name']}  ·  {len(o['buildings'])} bino")
+            for it in o["buildings"]:
+                add(sub, it)
+            if not o["buildings"]:
+                sub.addAction("(bo'sh)").setEnabled(False)
+        if items or all_orgs:
             m.addSeparator()
         m.addAction("+ Yangi bino...", lambda: self.new_building())
         m.addAction("Bosh sahifa (barcha binolar)", self.show_home)

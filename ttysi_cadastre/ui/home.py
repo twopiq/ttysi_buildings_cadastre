@@ -2,6 +2,8 @@
 
 Tuzilma:  Binolar papkasi / 1-bino.ttysi  (ichida 1-qavat, 2-qavat, ...)
                         / 2-bino.ttysi  (ichida 1-qavat, 2-qavat, ...)
+                        / Tashkilot nomi / 3-bino.ttysi, 4-bino.ttysi ...
+Tashkilot - binolar papkasi ichidagi papka (bir nechta binoni birlashtiradi, umumiy hisobot beradi).
 Har bir bino - bitta .ttysi fayl, etajlar va kadastr rasmlari shu faylning ichida (bitta faylni
 nusxalash yoki yuborish kifoya). Bosh sahifa papkadagi barcha binolarni o'zi ko'rsatadi; boshqa
 joydan ochilgan loyihalar ham "oxirgilar" ro'yxatida qoladi.
@@ -15,8 +17,9 @@ import time
 
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QProgressBar, QPushButton,
-                               QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
+                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar,
+                               QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from .. import __version__
 from ..equipment import EQUIPMENT_TYPES, get_type
@@ -26,6 +29,7 @@ from .widgets import LayoutButton, chip, svg_icon
 RECENT_KEY = "recent/projects"
 WORKSPACE_KEY = "workspace/folder"
 RECENT_LIMIT = 12
+ORG_MARK = ".ttysi-tashkilot"        # bo'sh tashkilot papkasi ham ko'rinishi uchun belgi fayl
 DROP_EXT = (".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 
 
@@ -67,17 +71,117 @@ def safe_file_name(name: str) -> str:
     return "".join(c for c in name if c not in '\\/:*?"<>|').strip().rstrip(".") or "Bino"
 
 
-def new_building_path(settings: QSettings, name: str) -> str:
-    """Papkada shu nomli bino uchun bo'sh fayl nomi ("1-bino.ttysi", band bo'lsa "1-bino (2).ttysi")."""
-    folder = workspace(settings)
-    os.makedirs(folder, exist_ok=True)
-    base = safe_file_name(name)
-    path = os.path.join(folder, base + ".ttysi")
+def free_path(folder: str, base: str, ext: str = ".ttysi") -> str:
+    """Papkada band bo'lmagan nom: "1-bino.ttysi", band bo'lsa "1-bino (2).ttysi"."""
+    path = os.path.join(folder, base + ext)
     n = 2
     while os.path.exists(path):
-        path = os.path.join(folder, f"{base} ({n}).ttysi")
+        path = os.path.join(folder, f"{base} ({n}){ext}")
         n += 1
     return path
+
+
+def new_building_path(settings: QSettings, name: str, org: str | None = None) -> str:
+    """Binolar papkasida (yoki tashkilot papkasida) shu nomli bino uchun bo'sh fayl nomi."""
+    folder = org or workspace(settings)
+    os.makedirs(folder, exist_ok=True)
+    return free_path(folder, safe_file_name(name))
+
+
+# ------------------------------------------------------------------ tashkilotlar
+def is_org(path: str) -> bool:
+    if not os.path.isdir(path) or os.path.basename(path).startswith("."):
+        return False
+    if os.path.exists(os.path.join(path, ORG_MARK)):
+        return True
+    try:
+        return any(n.lower().endswith(".ttysi") for n in os.listdir(path))
+    except OSError:
+        return False
+
+
+def orgs(folder: str) -> list[dict]:
+    """Binolar papkasidagi tashkilotlar: [{"name", "path", "buildings": scan(...)}]."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        p = os.path.abspath(os.path.join(folder, n))
+        if is_org(p):
+            out.append({"name": n, "path": p, "buildings": scan(p)})
+    return sorted(out, key=lambda o: natural_key(o["name"]))
+
+
+def org_of(settings: QSettings, path: str | None) -> str | None:
+    """Bino fayli tashkilot papkasida bo'lsa - shu papka, aks holda None."""
+    if not path:
+        return None
+    d = os.path.dirname(os.path.abspath(path))
+    ws = os.path.abspath(workspace(settings))
+    if os.path.normcase(os.path.dirname(d)) == os.path.normcase(ws) and is_org(d):
+        return d
+    return None
+
+
+def new_org(settings: QSettings, name: str) -> str:
+    """Yangi tashkilot papkasi (nomi band bo'lsa raqam qo'shiladi)."""
+    folder = workspace(settings)
+    path = free_path(folder, safe_file_name(name) or "Tashkilot", "")
+    os.makedirs(path)
+    open(os.path.join(path, ORG_MARK), "w").close()
+    return path
+
+
+def _repath_recent(settings: QSettings, old: str, new: str | None) -> None:
+    items = []
+    for i in recent(settings):
+        p = i["path"]
+        if os.path.normcase(p) == os.path.normcase(old) or os.path.normcase(p).startswith(os.path.normcase(old) + os.sep):
+            if new is None:
+                continue
+            i["path"] = os.path.abspath(new + p[len(old):])
+        items.append(i)
+    settings.setValue(RECENT_KEY, json.dumps(items, ensure_ascii=False))
+
+
+def move_building(settings: QSettings, path: str, org: str | None) -> str:
+    """Bino faylini tashkilotga (org=None - tashkilotsiz, binolar papkasiga) ko'chirish. Natija - yangi yo'l."""
+    folder = org or workspace(settings)
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.abspath(path)
+    if os.path.normcase(os.path.dirname(path)) == os.path.normcase(os.path.abspath(folder)):
+        return path
+    new = free_path(folder, os.path.splitext(os.path.basename(path))[0])
+    import shutil
+    shutil.move(path, new)
+    _cache.pop(path, None)
+    _repath_recent(settings, path, new)
+    return os.path.abspath(new)
+
+
+def rename_org(settings: QSettings, org: str, name: str) -> str:
+    org = os.path.abspath(org)
+    new = os.path.abspath(free_path(os.path.dirname(org), safe_file_name(name) or "Tashkilot", ""))
+    os.rename(org, new)
+    for k in [k for k in _cache if k.startswith(org + os.sep)]:
+        _cache.pop(k)
+    _repath_recent(settings, org, new)
+    return new
+
+
+def dissolve_org(settings: QSettings, org: str) -> list[str]:
+    """Tashkilotni tarqatish: binolar tashkilotsiz bo'lib qoladi (o'chirilmaydi), papka o'chiriladi."""
+    moved = [move_building(settings, b["path"], None) for b in scan(org)]
+    mark = os.path.join(org, ORG_MARK)
+    if os.path.exists(mark):
+        os.remove(mark)
+    try:
+        os.rmdir(org)                 # boshqa fayllar bo'lsa papka qoladi
+    except OSError:
+        pass
+    return moved
 
 
 _cache: dict[str, tuple[float, dict]] = {}
@@ -160,6 +264,8 @@ QPushButton#floorChip:hover {{ border-color: {theme.PRIMARY}; color: {theme.PRIM
 QPushButton#floorChip[warn="true"] {{ color: {theme.WARN_FG}; border-color: #E9C79F; }}
 QFrame#folderBar {{ background: {theme.SURFACE}; border: 1px solid {theme.LINE}; border-radius: 10px; }}
 QLabel#sectionTitle {{ font-size: 16px; font-weight: 600; }}
+QFrame#orgHead {{ background: {theme.PRIMARY_SOFT}; border: 1px solid #C9D8EE; border-radius: 10px; }}
+QLabel#orgTitle {{ font-size: 17px; font-weight: 700; color: {theme.PRIMARY_DARK}; }}
 QPushButton#link {{ border: none; background: transparent; color: {theme.PRIMARY}; font-weight: 600;
     min-height: 28px; padding: 0 6px; }}
 QPushButton#newCard {{
@@ -275,10 +381,58 @@ class ProjectCard(LayoutButton):
             lay.addLayout(fl)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
+    menu_builder = None          # HomePage beradi: (menu, path) -> menyuga amallar qo'shadi
+
     def _menu(self, pos):
         m = QMenu(self)
-        m.addAction("Ro'yxatdan olib tashlash", lambda: self.remove_requested.emit(self.path))
+        if self.menu_builder is not None:
+            self.menu_builder(m, self.path)
+        else:
+            m.addAction("Ro'yxatdan olib tashlash", lambda: self.remove_requested.emit(self.path))
         m.exec(self.mapToGlobal(pos))
+
+
+class OrgDialog(QDialog):
+    """Yangi tashkilot (yoki mavjudiga binolar qo'shish): nomi va birlashtiriladigan binolar."""
+
+    def __init__(self, buildings: list[dict], name: str = "", parent=None, title="Yangi tashkilot",
+                 checked: set[str] | None = None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(12)
+        self.name = QLineEdit(name)
+        self.name.setPlaceholderText("masalan: Toshkent shahar 5-maktab")
+        self.name.selectAll()
+        from .widgets import field
+        lay.addWidget(field("Tashkilot nomi", self.name))
+        cap = QLabel("Birlashtiriladigan binolar" if buildings else
+                     "Binolar papkasida boshqa bino yo'q - tashkilot bo'sh yaratiladi.")
+        cap.setObjectName("muted")
+        lay.addWidget(cap)
+        self.list = QListWidget()
+        self.list.setMinimumHeight(min(320, 40 + 30 * len(buildings)))
+        for b in buildings:
+            where = f"   ({b['org']})" if b.get("org") else ""
+            it = QListWidgetItem(f"{b['name']} · {b['floors']} etaj{where}")
+            it.setData(Qt.UserRole, b["path"])
+            it.setCheckState(Qt.Checked if checked and b["path"] in checked else Qt.Unchecked)
+            self.list.addItem(it)
+        self.list.setVisible(bool(buildings))
+        lay.addWidget(self.list, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText("Saqlash")
+        bb.button(QDialogButtonBox.Ok).setObjectName("primary")
+        bb.button(QDialogButtonBox.Cancel).setText("Bekor qilish")
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self.resize(480, self.sizeHint().height())
+
+    def chosen(self) -> list[str]:
+        return [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count())
+                if self.list.item(i).checkState() == Qt.Checked]
 
 
 class HomePage(QWidget):
@@ -287,6 +441,9 @@ class HomePage(QWidget):
     open_dialog = Signal()
     new_building = Signal()
     new_from_file = Signal(str)
+    new_building_in = Signal(str)        # tashkilot papkasi
+    org_report = Signal(str)             # tashkilot bo'yicha Excel hisobot
+    moved = Signal(str, str)             # bino fayli ko'chirildi: eski, yangi yo'l
 
     def __init__(self, settings: QSettings, settings_menu: QMenu | None = None, parent=None):
         super().__init__(parent)
@@ -358,6 +515,11 @@ class HomePage(QWidget):
         ob = QPushButton("Loyihani ochish")
         ob.setMinimumHeight(44)
         ob.clicked.connect(self.open_dialog)
+        org_b = QPushButton("  Yangi tashkilot")
+        org_b.setMinimumHeight(44)
+        org_b.setIcon(svg_icon("org", theme.INK_2, size=16))
+        org_b.setToolTip("Bir nechta binoni bitta tashkilotga birlashtirish")
+        org_b.clicked.connect(lambda: self.create_org())
         nb = QPushButton("  Yangi bino")
         nb.setObjectName("primary")
         nb.setMinimumHeight(44)
@@ -365,7 +527,7 @@ class HomePage(QWidget):
         nb.clicked.connect(self.new_building)
         btns = QHBoxLayout()
         btns.setSpacing(8)
-        for b in (ob, nb):
+        for b in (ob, org_b, nb):
             b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             btns.addWidget(b)
         head.addLayout(btns)
@@ -391,15 +553,11 @@ class HomePage(QWidget):
             bl.addWidget(b)
         lay.addWidget(bar)
 
-        self.grid = QGridLayout()
-        self.grid.setSpacing(16)
-        lay.addLayout(self.grid)
-        self.other_title = QLabel("Boshqa joydagi loyihalar")
-        self.other_title.setObjectName("sectionTitle")
-        lay.addWidget(self.other_title)
-        self.grid2 = QGridLayout()
-        self.grid2.setSpacing(16)
-        lay.addLayout(self.grid2)
+        self.sections = QVBoxLayout()           # tashkilotlar, tashkilotsiz binolar, boshqa joydagilar
+        self.sections.setSpacing(28)
+        lay.addLayout(self.sections)
+        self.sections_w: QWidget | None = None
+        self.other_title = QLabel()
 
         steps = QFrame()
         steps.setObjectName("stepsCard")
@@ -447,18 +605,56 @@ class HomePage(QWidget):
         c.clicked.connect(lambda _=False, p=it["path"]: self.open_path.emit(p))
         c.floor_clicked.connect(self.open_floor)
         c.remove_requested.connect(self._forget)
+        c.menu_builder = self._card_menu
         return c
 
     def refresh(self):
-        for w in self.cards:
-            w.hide()
-            w.deleteLater()
-        self.cards = []
+        if self.sections_w is not None:
+            self.sections_w.hide()
+            self.sections_w.deleteLater()
+        self.sections_w = QWidget()
+        sl = QVBoxLayout(self.sections_w)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.setSpacing(28)
+        self.sections.addWidget(self.sections_w)
         folder = workspace(self.settings)
         self.folder_label.setText(f"Binolar papkasi: {folder}")
+        self.orgs = orgs(folder)
         own = scan(folder)
-        own_paths = {os.path.normcase(i["path"]) for i in own}
+        in_orgs = [b for o in self.orgs for b in o["buildings"]]
+        own_paths = {os.path.normcase(i["path"]) for i in own + in_orgs}
         others = [i for i in recent(self.settings) if os.path.normcase(i["path"]) not in own_paths]
+        cols = 3
+        self.cards = []
+
+        def grid(cards):
+            g = QGridLayout()
+            g.setSpacing(16)
+            for i, c in enumerate(cards):
+                g.addWidget(c, i // cols, i % cols, Qt.AlignTop)
+            for c in range(cols):
+                g.setColumnStretch(c, 1)
+            sl.addLayout(g)
+
+        # --- tashkilotlar
+        for o in self.orgs:
+            sl.addWidget(self._org_head(o))
+            cards = [self._card(it) for it in o["buildings"]]
+            if cards:
+                grid(cards)
+            else:
+                e = QLabel("Bo'sh. Binoni kartochkasi menyusidan (o'ng tugma) shu tashkilotga ko'chiring "
+                           "yoki \"+ Bino\" bilan yangisini qo'shing.")
+                e.setObjectName("muted")
+                e.setWordWrap(True)
+                sl.addWidget(e)
+            self.cards += cards
+
+        # --- tashkilotsiz binolar
+        if self.orgs:
+            t = QLabel("Tashkilotsiz binolar")
+            t.setObjectName("sectionTitle")
+            sl.addWidget(t)
         main_cards = [self._card(it) for it in own]
         new = LayoutButton()
         new.setObjectName("newCard")
@@ -478,18 +674,164 @@ class HomePage(QWidget):
         new.setCursor(Qt.PointingHandCursor)
         new.clicked.connect(self.new_building)
         new.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        new.setFixedHeight(max([c.sizeHint().height() for c in main_cards] + [180]))
+        new.setFixedHeight(max([c.sizeHint().height() for c in main_cards + self.cards] + [180]))
         main_cards.append(new)
+        grid(main_cards)
+
+        # --- boshqa joydagi loyihalar
+        self.other_title = QLabel("Boshqa joydagi loyihalar")
+        self.other_title.setObjectName("sectionTitle")
+        sl.addWidget(self.other_title)
         other_cards = [self._card(it) for it in others]
-        cols = 3
-        for grid, cards in ((self.grid, main_cards), (self.grid2, other_cards)):
-            for i, c in enumerate(cards):
-                grid.addWidget(c, i // cols, i % cols, Qt.AlignTop)
-            for c in range(cols):
-                grid.setColumnStretch(c, 1)
+        grid(other_cards)
         self.other_title.setVisible(bool(other_cards))
-        self.cards = main_cards + other_cards
+        self.cards = self.cards + main_cards + other_cards
         self.buildings = own
+
+    def _org_head(self, o: dict) -> QFrame:
+        box = QFrame()
+        box.setObjectName("orgHead")
+        h = QHBoxLayout(box)
+        h.setContentsMargins(14, 10, 8, 10)
+        h.setSpacing(10)
+        icon = QLabel()
+        icon.setPixmap(svg_icon("org", theme.PRIMARY, size=22).pixmap(22, 22))
+        h.addWidget(icon)
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        t = QLabel(o["name"])
+        t.setObjectName("orgTitle")
+        bs = o["buildings"]
+        floors = sum(b["floors"] for b in bs)
+        unknown = sum(b["unknown"] for b in bs)
+        counts: dict[str, int] = {}
+        for b in bs:
+            for k, v in b["counts"].items():
+                counts[k] = counts.get(k, 0) + v
+        info = f"Tashkilot · {len(bs)} ta bino · {floors} etaj"
+        if counts:
+            info += " · " + ", ".join(f"{t.label} {counts[t.code]}" for t in EQUIPMENT_TYPES if counts.get(t.code))
+        sub = QLabel(info)
+        sub.setObjectName("muted")
+        col.addWidget(t)
+        col.addWidget(sub)
+        h.addLayout(col, 1)
+        if unknown:
+            h.addWidget(chip(f"{unknown} ta belgi kutmoqda", theme.WARN_BG, theme.WARN_FG))
+        for text, slot in (("+ Bino", lambda _=False, p=o["path"]: self.new_building_in.emit(p)),
+                           ("Excel hisobot", lambda _=False, p=o["path"]: self.org_report.emit(p))):
+            b = QPushButton(text)
+            b.setObjectName("link")
+            b.clicked.connect(slot)
+            b.setEnabled(text != "Excel hisobot" or bool(bs))
+            h.addWidget(b)
+        more = QPushButton("⋯")
+        more.setObjectName("link")
+        more.setToolTip("Tashkilot amallari")
+        m = QMenu(more)
+        m.addAction("Binolarni qo'shish...", lambda p=o["path"]: self.add_to_org(p))
+        m.addAction("Nomini o'zgartirish...", lambda p=o["path"]: self.rename_org(p))
+        m.addAction("Papkani ochish", lambda p=o["path"]: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
+        m.addSeparator()
+        m.addAction("Tashkilotni tarqatish (binolar saqlanadi)", lambda p=o["path"]: self.dissolve_org(p))
+        more.setMenu(m)
+        h.addWidget(more)
+        return box
+
+    def _card_menu(self, m: QMenu, path: str):
+        ws = os.path.normcase(os.path.abspath(workspace(self.settings)))
+        here = os.path.normcase(os.path.dirname(path))
+        inside = here == ws or any(os.path.normcase(o["path"]) == here for o in self.orgs)
+        if inside:
+            sub = m.addMenu("Tashkilotga ko'chirish")
+            for o in self.orgs:
+                a = sub.addAction(o["name"], lambda p=o["path"]: self.move(path, p))
+                a.setEnabled(os.path.normcase(o["path"]) != here)
+            if self.orgs:
+                sub.addSeparator()
+            sub.addAction("Yangi tashkilot...", lambda: self.create_org(checked={path}))
+            if here != ws:
+                m.addAction("Tashkilotdan chiqarish", lambda: self.move(path, None))
+        else:
+            m.addAction("Ro'yxatdan olib tashlash", lambda: self._forget(path))
+
+    def _all_buildings(self, exclude_org: str | None = None) -> list[dict]:
+        out = [dict(b) for b in scan(workspace(self.settings))]
+        for o in orgs(workspace(self.settings)):
+            if exclude_org and os.path.normcase(o["path"]) == os.path.normcase(exclude_org):
+                continue
+            out += [dict(b, org=o["name"]) for b in o["buildings"]]
+        return out
+
+    def move(self, path: str, org: str | None, refresh=True) -> str | None:
+        try:
+            new = move_building(self.settings, path, org)
+        except OSError as e:
+            QMessageBox.warning(self, "Ko'chirish", f"{os.path.basename(path)}: {e}")
+            return None
+        if os.path.normcase(new) != os.path.normcase(os.path.abspath(path)):
+            self.moved.emit(os.path.abspath(path), new)
+        if refresh:
+            self.refresh()
+        return new
+
+    def create_org(self, name: str | None = None, paths: list[str] | None = None,
+                   checked: set[str] | None = None) -> str | None:
+        """Yangi tashkilot; name/paths berilsa oyna ko'rsatilmaydi (testlar uchun)."""
+        if name is None:
+            dlg = OrgDialog(self._all_buildings(), f"{len(orgs(workspace(self.settings))) + 1}-tashkilot",
+                            self, checked=checked)
+            if dlg.exec() != QDialog.Accepted:
+                return None
+            name, paths = dlg.name.text().strip(), dlg.chosen()
+        try:
+            org = new_org(self.settings, name or "Tashkilot")
+        except OSError as e:
+            QMessageBox.warning(self, "Tashkilot", str(e))
+            return None
+        for p in paths or []:
+            self.move(p, org, refresh=False)
+        self.refresh()
+        return org
+
+    def add_to_org(self, org: str):
+        dlg = OrgDialog(self._all_buildings(exclude_org=org), os.path.basename(org), self,
+                        title="Tashkilotga binolar qo'shish")
+        dlg.name.setEnabled(False)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        for p in dlg.chosen():
+            self.move(p, org, refresh=False)
+        self.refresh()
+
+    def rename_org(self, org: str, name: str | None = None) -> str | None:
+        if name is None:
+            name, ok = QInputDialog.getText(self, "Tashkilot nomi", "Yangi nom:", text=os.path.basename(org))
+            if not ok or not name.strip() or name.strip() == os.path.basename(org):
+                return None
+        old_files = [b["path"] for b in scan(org)]
+        try:
+            new = rename_org(self.settings, org, name.strip())
+        except OSError as e:
+            QMessageBox.warning(self, "Tashkilot", f"Nomini o'zgartirib bo'lmadi: {e}")
+            return None
+        for p in old_files:
+            self.moved.emit(p, os.path.join(new, os.path.basename(p)))
+        self.refresh()
+        return new
+
+    def dissolve_org(self, org: str, confirm=True):
+        if confirm and QMessageBox.question(
+                self, "Tashkilotni tarqatish",
+                f"\"{os.path.basename(org)}\" tashkiloti tarqatilsinmi? Binolar o'chirilmaydi - "
+                "tashkilotsiz binolar qatoriga o'tadi.") != QMessageBox.Yes:
+            return
+        old = [b["path"] for b in scan(org)]
+        new = dissolve_org(self.settings, org)
+        for a, b in zip(old, new):
+            if os.path.normcase(a) != os.path.normcase(b):
+                self.moved.emit(a, b)
+        self.refresh()
 
     def open_folder(self):
         folder = workspace(self.settings)

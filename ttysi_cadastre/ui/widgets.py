@@ -31,6 +31,7 @@ ICONS = {
     "back": '<path d="M15 18l-6-6 6-6"/>',
     "settings": '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1'
                 'M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+    "org": '<path d="M4 21V6l8-3 8 3v15"/><path d="M2 21h20M10 21v-4h4v4M8 9h2M14 9h2M8 13h2M14 13h2"/>',
     "folder": '<path d="M3 6h6l2 2h10v11H3z"/>',
     "edit": '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
     "warn": '<path d="M12 3l10 18H2z"/><path d="M12 10v4M12 18h.01"/>',
