@@ -29,6 +29,7 @@ from .canvas import (BG_ALIGN, BG_MOVE, DOME, DOOR, EQUIP, ROOM_POLY, ROOM_RECT,
                      DoorItem, EquipmentItem, FloorScene, FloorView, RoomItem, WallItem)
 from .import_dialog import ImportDialog, RedetectDialog, image_paper_mm_per_px, ratio_presets
 from .review_dialog import ReviewDialog
+from .scale_dialog import ScaleDialog
 from .shortcuts import ShortcutsDialog, display, registry
 from .update_dialog import UpdateBanner, Updater, UpdateSettingsDialog, show_whats_new
 from . import theme
@@ -181,7 +182,8 @@ class MainWindow(QMainWindow):
         A(m, "Fonni surish", lambda: self.select_tool(BG_MOVE), None, "floor.bg_move")
         A(m, "Fonni 2 nuqta bilan moslash", lambda: self.select_tool(BG_ALIGN), None, "floor.bg_align")
         A(m, "Fonni asl holiga qaytarish", self.reset_bg, None, "floor.bg_reset")
-        A(m, "Masshtabni belgilash", lambda: self.select_tool(SCALE), None, "floor.scale")
+        A(m, "Masshtabni belgilash (2 nuqta)", lambda: self.select_tool(SCALE), None, "floor.scale")
+        A(m, "Masshtabni nisbat bo'yicha qayta hisoblash...", lambda: self.recalc_scale(), None, "floor.recalc")
         A(m, "Xonalarni qayta raqamlash...", self.renumber_rooms, None, "floor.renumber")
         A(m, "Etaj nomini o'zgartirish...", self.rename_floor, "F2", "floor.rename")
         A(m, "Etajni o'chirish", self.delete_floor, None, "floor.delete")
@@ -411,6 +413,8 @@ class MainWindow(QMainWindow):
         self.floor_title.setObjectName("floorTitle")
         self.floor_info = QLabel()
         self.floor_info.setObjectName("muted")
+        self.floor_info.setTextFormat(Qt.RichText)
+        self.floor_info.linkActivated.connect(lambda _: self.recalc_scale())
         row.addWidget(self.floor_title)
         row.addWidget(self.floor_info)
         row.addStretch()
@@ -538,10 +542,19 @@ class MainWindow(QMainWindow):
         self.p_ratio_hint.setObjectName("muted")
         self.p_ratio_hint.setWordWrap(True)
         nl.addWidget(self.p_ratio_hint)
-        b = QPushButton("Masshtabni 2 nuqta bilan belgilash")
+        srow = QHBoxLayout()
+        srow.setSpacing(6)
+        b = QPushButton("Qayta hisoblash")
         b.setObjectName("small")
+        b.setToolTip("Nisbat bo'yicha masshtabni va xonalar maydonini qayta hisoblash")
+        b.clicked.connect(lambda: self.recalc_scale())
+        srow.addWidget(b, 1)
+        b = QPushButton("2 nuqta bilan")
+        b.setObjectName("small")
+        b.setToolTip("Uzunligi ma'lum chiziq bo'yicha masshtab")
         b.clicked.connect(lambda: self.select_tool(SCALE))
-        nl.addWidget(b)
+        srow.addWidget(b)
+        nl.addLayout(srow)
 
         # --- kadastr foni
         nl.addWidget(hline())
@@ -978,7 +991,9 @@ class MainWindow(QMainWindow):
         self.stats.setText("<br>".join(lines))
         self.floor_title.setText(f.name)
         info = ([f"1:{f.ratio}"] if f.ratio else []) + [f"{len(f.rooms)} ta xona"]
-        info.append(f"{total:.0f} m²" if total is not None else "masshtab yo'q")
+        info.append(f"{total:.0f} m²" if total is not None else
+                    f"masshtab yo'q — <a href='scale' style='color:{theme.PRIMARY}; text-decoration:none'>"
+                    "qayta hisoblash</a>")
         self.floor_info.setText("· " + " · ".join(info))
         self.update_hint()
 
@@ -1155,12 +1170,12 @@ class MainWindow(QMainWindow):
         if f.scale_m_per_px:
             txt = f"1 piksel = {f.scale_m_per_px * 100:.2f} sm"
             if not f.paper_mm_per_px:
-                txt += ". Qog'oz o'lchami noma'lum: nisbat o'zgarsa masshtabni 2 nuqta bilan qayta belgilang."
+                txt += ". Nisbat o'zgarsa \"Qayta hisoblash\" ni bosing."
         elif f.paper_mm_per_px:
             txt = "Nisbatni kiriting - maydonlar m² da hisoblanadi."
         else:
-            txt = ("Rasmda qog'oz o'lchami yo'q (telefon rasmi). Masshtabni 2 nuqta bilan belgilang - "
-                   "keyin nisbatni o'zgartirsangiz o'zi qayta hisoblanadi.")
+            txt = ("Masshtab yo'q: nisbatni kiriting va \"Qayta hisoblash\" ni bosing (PDF/skaner aniqligi "
+                   "bo'yicha) yoki \"2 nuqta bilan\" uzunligi ma'lum chiziqni belgilang.")
         self.p_ratio_hint.setText(txt)
         has_bg = bool(f.image)
         for wdg in (self.b_bg_move, self.b_bg_align, self.p_bg_rot, self.p_bg_scale):
@@ -1182,6 +1197,34 @@ class MainWindow(QMainWindow):
         self.set_dirty()
         if f.scale_m_per_px and f.scale_m_per_px != old:
             self.statusBar().showMessage(f"Masshtab 1:{ratio} bo'yicha qayta hisoblandi.", 5000)
+        elif ratio and not f.paper_mm_per_px:
+            self.statusBar().showMessage("Nisbat saqlandi. Maydonlarni hisoblash uchun \"Qayta hisoblash\" "
+                                         "tugmasini bosing.", 8000)
+
+    def recalc_scale(self, ratio: int | None = None, dialog_hook=None) -> bool:
+        """Masshtab va maydonlarni nisbat bo'yicha qayta hisoblash (qog'oz o'lchami noma'lum bo'lsa so'raladi)."""
+        f = self.floor
+        if f is None:
+            return False
+        dlg = ScaleDialog(f, self)
+        if ratio:
+            dlg.ratio_spin.setValue(ratio)
+        if (dialog_hook(dlg) if dialog_hook else dlg.exec()) != QDialog.Accepted:
+            return False
+        f.ratio = dlg.ratio()
+        if dlg.mode() == "points":
+            self.refresh_floor_settings()
+            self.select_tool(SCALE)
+            return False
+        f.paper_mm_per_px = dlg.paper_mm_per_px()
+        f.apply_ratio(dlg.ratio())
+        self.histories[f.id].push(f)
+        self.show_floor(f, keep_view=True)
+        self.set_dirty()
+        area = sum(r.area() for r in f.rooms) * f.scale_m_per_px ** 2
+        self.statusBar().showMessage(f"Masshtab 1:{f.ratio} bo'yicha hisoblandi: 1 piksel = "
+                                     f"{f.scale_m_per_px * 100:.2f} sm, umumiy maydon {area:.1f} m².", 8000)
+        return True
 
     def on_bg_params(self):
         f = self.floor

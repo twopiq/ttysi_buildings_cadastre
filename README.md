@@ -165,8 +165,11 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
    kompyuterda saqlanib qoladi. Bu yerda yozilgan tugmalar — standart qiymatlar.
 8. **Nisbat va masshtab.** Hech narsa tanlanmaganda o'ngdagi panelda **"Nisbat"** maydoni: `1 : 200`,
    `1 : 300`, `1 : 400` ... yozing yoki yonidagi ro'yxatdan tanlang. PDF'dan olingan etajda masshtab darhol
-   qayta hisoblanadi. Telefon rasmida qog'oz o'lchami noma'lum — avval masshtabni 2 nuqta bilan belgilang,
-   shundan keyin nisbat o'zgartirilsa o'zi qayta hisoblanadi. Etaj sarlavhasida nisbat ko'rinadi (1:300).
+   qayta hisoblanadi. **"Qayta hisoblash"** tugmasi (yoki sarlavhadagi "masshtab yo'q — qayta hisoblash"
+   havolasi, Etaj menyusi): nisbat va rasm aniqligi (PDF/skaner, odatda 200 DPI) bo'yicha masshtab va
+   barcha maydonlar qayta hisoblanadi — oldingi versiyalarda qo'shilgan etajlar uchun ham. Telefon
+   rasmida "2 nuqta bilan" — uzunligi ma'lum chiziq bo'yicha; shundan keyin nisbat o'zgarsa o'zi
+   qayta hisoblanadi. Etaj sarlavhasida nisbat ko'rinadi (1:300).
    **Kadastr fonini moslash** (shu panel yoki Etaj menyusi): **✥ Surish** — rasmni sichqoncha bilan
    suring; **⌖ 2 nuqta bilan moslash** — rasmdagi nuqtani, keyin chizmadagi mos joyni bosing (2 marta),
    fon surilib, burilib va kattalashib o'z joyiga tushadi; **Burilish / O'lchami** — aniq qiymat;

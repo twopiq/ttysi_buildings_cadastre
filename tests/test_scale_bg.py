@@ -149,3 +149,39 @@ def test_import_stores_paper_and_ratio(qapp):
     dlg2 = ImportDialog(img, "2", w, paper_mm_per_px=None)
     assert dlg2.scale.isEnabled()
     _close(w)
+
+
+def test_recalc_scale_for_old_floor(qapp):
+    """Eski versiyada qo'shilgan etaj: nisbat bor, qog'oz o'lchami yo'q - "Qayta hisoblash" (DPI bo'yicha)."""
+    from PySide6.QtWidgets import QDialog
+    f = Floor(name="1-etaj", width=3000, height=1000, ratio=400)
+    f.rooms = [Room(points=[(0, 0), (1000, 0), (1000, 500), (0, 500)])]
+    w = _window(f)
+    assert "Qayta hisoblash" in w.p_ratio_hint.text() and f.scale_m_per_px is None
+
+    def hook(dlg):
+        assert dlg.ratio() == 400 and dlg.dpi.currentText() == "200"
+        assert "m²" in dlg.preview.text()
+        return QDialog.Accepted
+    assert w.recalc_scale(dialog_hook=hook)
+    assert f.scale_m_per_px == pytest.approx(25.4 / 200 * 400 / 1000)
+    assert f.paper_mm_per_px == pytest.approx(25.4 / 200)
+    assert "m²" in w.floor_info.text() and "masshtab yo'q" not in w.floor_info.text()
+    w.p_ratio.setValue(300)                                    # endi nisbat o'zgarsa darhol hisoblanadi
+    assert f.scale_m_per_px == pytest.approx(25.4 / 200 * 0.3)
+    w.undo()
+    assert f.ratio == 400
+
+    # boshqa DPI va 2 nuqta usuli
+    def hook2(dlg):
+        dlg.dpi.setCurrentText("300")
+        return QDialog.Accepted
+    assert w.recalc_scale(dialog_hook=hook2)
+    assert f.scale_m_per_px == pytest.approx(25.4 / 300 * 0.4)
+
+    def hook3(dlg):
+        dlg.r_points.setChecked(True)
+        return QDialog.Accepted
+    assert not w.recalc_scale(dialog_hook=hook3)
+    assert w.view.tool == "scale"
+    _close(w)
