@@ -463,12 +463,14 @@ class ImportDialog(QDialog):
         cl.setContentsMargins(12, 12, 12, 12)
         cl.setSpacing(10)
         self.auto = QCheckBox()
+        self.auto_title_text = "<b>Chizmani avtomatik chizish</b>"
         self.auto.setChecked(True)
         cl.addWidget(self.auto, 0, Qt.AlignTop)
         tc = QVBoxLayout()
         tc.setSpacing(2)
-        at = QLabel("<b>Chizmani avtomatik chizish</b>")
+        at = QLabel(self.auto_title_text)
         ad = QLabel("Xonalar, koridorlar va ko'k ruchkadagi belgilar topiladi va raqamlanadi.")
+        self.auto_title, self.auto_desc = at, ad
         ad.setObjectName("muted")
         ad.setWordWrap(True)
         for w in (at, ad):
@@ -512,11 +514,13 @@ class ImportDialog(QDialog):
         self.b_create.setDefault(True)
         self.b_create.clicked.connect(self.accept)
         sl.addWidget(self.b_create)
+        self.b_again = None
         if doc is not None:
             b = QPushButton("Yaratish va shu PDF'dan yana etaj")
             b.setObjectName("secondary")
             b.clicked.connect(self.accept_again)
             sl.addWidget(b)
+            self.b_again = b
         body.addWidget(side)
 
         self.scale.valueChanged.connect(self.update_scale)
@@ -533,6 +537,20 @@ class ImportDialog(QDialog):
             else:
                 self.auto_corners()
         self.update_scale()
+
+    def set_replace_mode(self, floor_name: str, has_drawing: bool):
+        """Mavjud etajning kadastr rasmini almashtirish: etaj nomi o'zgarmaydi, chizma odatda saqlanadi."""
+        self.setWindowTitle(f"Kadastr rasmini almashtirish — {floor_name}")
+        self.name.setText(floor_name)
+        self.name.setEnabled(False)
+        self.b_create.setText("Rasmni almashtirish")
+        if self.b_again is not None:
+            self.b_again.hide()
+        self.auto_title.setText("<b>Xonalarni yangi rasmdan qayta chizish</b>")
+        self.auto_desc.setText("Joriy xonalar o'rniga yangi rasmdan chiziladi. Turi tasdiqlangan AT belgilari, "
+                               "eshiklar va devorlar saqlanadi. Belgilanmasa - chizma o'zgarmaydi, faqat fon "
+                               "rasmi almashadi.")
+        self.auto.setChecked(not has_drawing)
 
     # --- PDF sahifalari
     def page(self) -> int:

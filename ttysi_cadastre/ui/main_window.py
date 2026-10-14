@@ -176,6 +176,8 @@ class MainWindow(QMainWindow):
         A(m, "PDF / rasmdan yangi etaj qo'shish...", self.add_floor_from_image, "Ctrl+I", "floor.import")
         A(m, "Bo'sh etaj qo'shish", self.add_empty_floor, None, "floor.empty")
         A(m, "Qayta avtomatik chizish...", self.redetect, None, "floor.redetect")
+        A(m, "Kadastr rasmini almashtirish...", self.replace_floor_image, None, "floor.replace_image")
+        A(m, "Kadastr rasmini olib tashlash", self.remove_floor_image, None, "floor.remove_image")
         A(m, "Masshtabni belgilash", lambda: self.select_tool(SCALE), None, "floor.scale")
         A(m, "Xonalarni qayta raqamlash...", self.renumber_rooms, None, "floor.renumber")
         A(m, "Etaj nomini o'zgartirish...", self.rename_floor, "F2", "floor.rename")
@@ -705,6 +707,7 @@ class MainWindow(QMainWindow):
         m.addAction("Chapga surish", lambda: self.move_floor(-1)).setEnabled(i > 0)
         m.addAction("O'ngga surish", lambda: self.move_floor(1)).setEnabled(i < len(self.building.floors) - 1)
         m.addSeparator()
+        m.addAction("Kadastr rasmini almashtirish...", self.replace_floor_image)
         m.addAction("Qayta avtomatik chizish...", self.redetect)
         m.addAction("Xonalarni qayta raqamlash...", self.renumber_rooms)
         m.addSeparator()
@@ -1415,6 +1418,87 @@ class MainWindow(QMainWindow):
                 + (f" (shundan {domes} ta gumbaz, {len(res.doors)} ta kirish)" if domes else "")
                 + f", {len(res.marks)} ta belgi nomzodi. "
                 "Chizmani tekshirib, tuzating.")
+
+    def replace_floor_image(self, path: str | None = None, dialog_hook=None) -> bool:
+        """Joriy etajning kadastr rasmini (PDF yoki rasm) almashtirish.
+
+        Yangi rasm etaj kengligiga moslanadi: chizma o'z joyida qoladi (masshtab bo'yicha qayta hisoblanadi).
+        Xohlansa xonalar yangi rasmdan qayta chiziladi (tasdiqlangan AT belgilari saqlanadi).
+        dialog_hook - testlar uchun: oynani ko'rsatish o'rniga chaqiriladi.
+        """
+        f = self.floor
+        if f is None:
+            QMessageBox.information(self, "Rasmni almashtirish", "Avval etajni tanlang.")
+            return False
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(self, f"{f.name}: yangi kadastr rasmi",
+                                                  self.settings.value("last_dir", ""), IMAGE_FILTER)
+        if not path:
+            return False
+        self.settings.setValue("last_dir", os.path.dirname(path))
+        has_drawing = bool(f.rooms or f.walls or f.doors or f.equipment)
+        doc = None
+        try:
+            if path.lower().endswith(".pdf"):
+                doc = QPdfDocument(self)
+                if doc.load(path) != QPdfDocument.Error.None_ or doc.pageCount() == 0:
+                    QMessageBox.critical(self, "Xato", "PDF faylni ochib bo'lmadi.")
+                    return False
+                dlg = ImportDialog(None, f.name, self, doc=doc, file_name=os.path.basename(path))
+            else:
+                img = read_image(path)
+                dlg = ImportDialog(img, f.name, self, paper_mm_per_px=image_paper_mm_per_px(path),
+                                   file_name=os.path.basename(path))
+            dlg.set_replace_mode(f.name, has_drawing)
+            if (dialog_hook(dlg) if dialog_hook else dlg.exec()) != QDialog.Accepted:
+                return False
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                cropped = dlg.result_image()
+                mpp = dlg.m_per_px()
+                corrected = limit_size(cropped)
+                if mpp:
+                    mpp *= cropped.shape[1] / corrected.shape[1]
+                h, w = corrected.shape[:2]
+                # chizma yangi rasm kengligiga moslanadi
+                old_w = f.width or w
+                f.scale_content(w / old_w)
+                f.width, f.height = w, h
+                f.image = encode_jpg(corrected)
+                if mpp:
+                    f.scale_m_per_px = mpp
+                msg = f"\"{f.name}\" kadastr rasmi almashtirildi."
+                if dlg.auto.isChecked():
+                    msg = self.apply_detection(f, corrected, dlg.params_w.params(mpp), keep_eq=True,
+                                               numbering=dlg.params_w.numbering.isChecked())
+            finally:
+                QApplication.restoreOverrideCursor()
+        except Exception as e:
+            QMessageBox.critical(self, "Xato", str(e))
+            return False
+        finally:
+            if doc is not None:
+                doc.close()
+        self.bg_cache.pop(f.id, None)
+        self.histories[f.id] = History(f)       # eski rasm koordinatalaridagi tarix endi mos emas
+        self.show_floor(f)
+        self.refresh_floor_list()
+        self.set_dirty()
+        self.statusBar().showMessage(msg, 10000)
+        return True
+
+    def remove_floor_image(self):
+        f = self.floor
+        if f is None or not f.image:
+            return
+        if QMessageBox.question(self, "Kadastr rasmini olib tashlash",
+                                f"\"{f.name}\" etajining kadastr rasmi o'chirilsinmi? Chizma saqlanadi.") \
+                != QMessageBox.Yes:
+            return
+        f.image = None
+        self.bg_cache.pop(f.id, None)
+        self.show_floor(f, keep_view=True)
+        self.set_dirty()
 
     def redetect(self):
         if self.floor is None or not self.floor.image:

@@ -149,15 +149,20 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
    paneli. Asboblar panelidagi **"Kerak (reja)"** (`Q`) yoqilsa, yangi qo'yilgan jihozlar darhol
    "kerak" bo'ladi. Masalan: kompyuter xonasida internet yo'q bo'lsa, xona turini "Kompyuter xona"
    qilasiz va unga "kerak" holatidagi Switch qo'yasiz.
-6. **Klaviatura tugmalari (Yordam → Klaviatura tugmalari, `Ctrl+,`).** Har bir amalning tugmasini
+6. **Kadastr rasmini almashtirish** (etaj tabida o'ng tugma yoki **Etaj → Kadastr rasmini
+   almashtirish**): yangi PDF yoki rasm tanlanadi, ramkaga olinadi, nisbat kiritiladi. Chizma o'z
+   joyida qoladi (yangi rasm o'lchamiga moslanadi). Xohlasangiz "Xonalarni yangi rasmdan qayta chizish"
+   ni belgilang — xonalar yangidan topiladi, turi tasdiqlangan AT belgilari, eshik va devorlar saqlanadi.
+   **Etaj → Kadastr rasmini olib tashlash** — faqat fon rasmini o'chiradi.
+7. **Klaviatura tugmalari (Yordam → Klaviatura tugmalari, `Ctrl+,`).** Har bir amalning tugmasini
    o'zingizga qulay qilib almashtirasiz: maydonni bosib, yangi tugmani bosing. Bir xil tugma ikki
    amalga berilsa, ikkalasi qizil bilan ko'rsatiladi va saqlab bo'lmaydi. "Standart" tugmasi bitta
    amalni, "Hammasini standartga qaytarish" esa barchasini asl holiga qaytaradi. O'zgartirilgan
    tugmalar menyularda, maslahatlarda, qo'llanmada va tasdiqlash ekranida darhol yangilanadi va
    kompyuterda saqlanib qoladi. Bu yerda yozilgan tugmalar — standart qiymatlar.
-7. **Masshtab (Etaj menyusi).** Uzunligi ma'lum devorni belgilasangiz, maydonlar m² da chiqadi va DXF
+8. **Masshtab (Etaj menyusi).** Uzunligi ma'lum devorni belgilasangiz, maydonlar m² da chiqadi va DXF
    metrlarda saqlanadi.
-8. **Eksport** (yuqoridagi tugma yoki `Ctrl+E`):
+9. **Eksport** (yuqoridagi tugma yoki `Ctrl+E`):
    - PNG / JPG va SVG (barcha etajlar tanlansa — har etaj alohida fayl, tanlangan papkaga);
    - PDF (joriy etaj yoki barcha etajlar bitta faylda);
    - "Rejadagi (kerak) jihozlar" belgisini olib tashlasangiz, faqat mavjud jihozlar chiqadi;

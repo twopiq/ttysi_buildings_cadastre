@@ -122,6 +122,25 @@ class Floor:
         hits = [r for r in self.rooms if r.contains(e.x, e.y)]
         return min(hits, key=lambda r: r.area()) if hits else None
 
+    def scale_content(self, k: float) -> None:
+        """Barcha chizmani (xonalar, devorlar, eshiklar, jihozlar) k marta masshtablaydi - etaj rasmi
+        boshqa o'lchamdagi rasmga almashtirilganda chizma o'z joyida qolishi uchun."""
+        if abs(k - 1) < 1e-12:
+            return
+        for r in self.rooms:
+            r.points = [(x * k, y * k) for x, y in r.points]
+        for w in self.walls:
+            w.points = [(x * k, y * k) for x, y in w.points]
+            w.thickness *= k
+        for d in self.doors:
+            d.x, d.y, d.width = d.x * k, d.y * k, d.width * k
+        for e in self.equipment:
+            e.x, e.y = e.x * k, e.y * k
+        self.width = round(self.width * k)
+        self.height = round(self.height * k)
+        if self.scale_m_per_px:
+            self.scale_m_per_px /= k
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
