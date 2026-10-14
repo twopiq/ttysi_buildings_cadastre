@@ -230,3 +230,12 @@ def test_settings_connection_check(tmp_path, monkeypatch):
     assert _wait(lambda: d.test_btn.isEnabled())
     assert d.test_result.text().startswith("✗")
     d.reject()
+
+
+def test_normalize_repo():
+    d = updater.DEFAULT_REPO
+    for text in ("twopiq/x", "https://github.com/twopiq/x", "github.com/twopiq/x.git", " twopiq/x/ ",
+                 "https://github.com/twopiq/x/releases/latest", "git@github.com:twopiq/x.git", '"twopiq/x"'):
+        assert updater.normalize_repo(text) == "twopiq/x", text
+    for text in ("", "x", "https://example.com", "a b/c"):
+        assert updater.normalize_repo(text) == d, text

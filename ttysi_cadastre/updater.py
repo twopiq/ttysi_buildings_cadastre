@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -164,6 +165,26 @@ class _DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
 
 _opener = urllib.request.build_opener(_DropAuthOnRedirect)
 
+def normalize_repo(text: str) -> str:
+    """Repozitoriy maydonini "egasi/nomi" ko'rinishiga keltiradi.
+
+    Qabul qilinadi: "egasi/nomi", "https://github.com/egasi/nomi", "github.com/egasi/nomi.git",
+    "git@github.com:egasi/nomi.git", oxiridagi "/" yoki "/releases..." qismlari. Tushunib bo'lmasa -
+    standart repozitoriy.
+    """
+    t = (text or "").strip().strip('"').strip("'").strip()
+    t = re.sub(r"^(git@github\.com:|(https?://)?(www\.)?github\.com/)", "", t, flags=re.I)
+    parts = [p for p in t.split("/") if p]
+    if len(parts) < 2:
+        return DEFAULT_REPO
+    owner, name = parts[0], parts[1]
+    if name.lower().endswith(".git"):
+        name = name[:-4]
+    if not re.fullmatch(r"[A-Za-z0-9-]+", owner) or not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+        return DEFAULT_REPO
+    return f"{owner}/{name}"
+
+
 TOKEN_HELP = ("GitHub → Settings → Developer settings → Fine-grained tokens → yangi token: "
               "Repository access - shu repozitoriy, Permissions - Contents: Read-only.")
 
@@ -172,7 +193,7 @@ class GitHubSource(Source):
     """GitHub Releases: oxirgi reliz. Yopiq repo uchun faqat o'qish huquqli token kerak."""
 
     def __init__(self, repo: str = DEFAULT_REPO, token: str = ""):
-        self.repo = repo.strip().strip("/")
+        self.repo = normalize_repo(repo)
         self.token = token.strip().strip('"').strip("'")
         self._assets: dict[str, str] | None = None
 
@@ -184,7 +205,12 @@ class GitHubSource(Source):
         return _opener.open(req, timeout=30)
 
     def _explain(self, e: urllib.error.HTTPError) -> UpdateError:
-        """GitHub javobini aniq, foydalanuvchi tushunadigan sababga aylantiradi."""
+        """GitHub javobini aniq, foydalanuvchi tushunadigan sababga aylantiradi (manzil bilan)."""
+        err = self._explain_text(e)
+        url = (getattr(e, "url", None) or getattr(e, "filename", None) or "").split("?")[0]
+        return UpdateError(f"{err}\nManzil: {url}" if url else str(err))
+
+    def _explain_text(self, e: urllib.error.HTTPError) -> UpdateError:
         code = e.code
         remaining = (e.headers or {}).get("X-RateLimit-Remaining") if e.headers else None
         if code == 403 and remaining == "0":
@@ -199,8 +225,8 @@ class GitHubSource(Source):
             if self.token:
                 return UpdateError(f"Token \"{self.repo}\" repozitoriyini ko'ra olmaydi yoki reliz yo'q "
                                    "(GitHub 404). " + TOKEN_HELP)
-            return UpdateError("Yangilanish topilmadi: repozitoriy yopiq. Yangilanish sozlamalarida token "
-                               "kiriting yoki tarmoq papkasini ko'rsating.")
+            return UpdateError(f"\"{self.repo}\" repozitoriyida yangilanish fayli topilmadi (GitHub 404). "
+                               "Repozitoriy nomini tekshiring (egasi/nomi); yopiq repozitoriy bo'lsa token kiriting.")
         return UpdateError(f"GitHub xatosi ({code}). Keyinroq urinib ko'ring.")
 
     def _asset_urls(self) -> dict[str, str]:

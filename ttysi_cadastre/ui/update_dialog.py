@@ -30,7 +30,7 @@ def load_settings() -> dict:
     return {
         "kind": s.value(f"{SETTINGS_KEY}/kind", "github"),
         "folder": s.value(f"{SETTINGS_KEY}/folder", ""),
-        "repo": s.value(f"{SETTINGS_KEY}/repo", updater.DEFAULT_REPO),
+        "repo": updater.normalize_repo(s.value(f"{SETTINGS_KEY}/repo", updater.DEFAULT_REPO)),
         "token": s.value(f"{SETTINGS_KEY}/token", ""),
         "auto": s.value(f"{SETTINGS_KEY}/auto", True, type=bool),
     }
@@ -562,7 +562,7 @@ class UpdateSettingsDialog(QDialog):
 
     def current(self) -> dict:
         return {"kind": "folder" if self.r_folder.isChecked() else "github",
-                "folder": self.folder.text().strip(), "repo": self.repo.text().strip() or updater.DEFAULT_REPO,
+                "folder": self.folder.text().strip(), "repo": updater.normalize_repo(self.repo.text()),
                 "token": self.token.text().strip(), "auto": self.auto.isChecked()}
 
     def test_connection(self):
