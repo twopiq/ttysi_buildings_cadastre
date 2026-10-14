@@ -30,7 +30,7 @@ from .canvas import (DOOR, EQUIP, ROOM_POLY, ROOM_RECT, SCALE, SELECT, SPLIT, ST
 from .import_dialog import ImportDialog, RedetectDialog, image_paper_mm_per_px
 from .review_dialog import ReviewDialog
 from .shortcuts import ShortcutsDialog, display, registry
-from .update_dialog import Updater, UpdateSettingsDialog, load_settings
+from .update_dialog import UpdateBanner, Updater, UpdateSettingsDialog, show_whats_new
 from . import theme
 from .widgets import (EDITOR_STYLE, FloorTabs, StepsBar, Tile, chip, equip_grid, field, hline, kbd, section_title,
                       svg_icon, type_icon)
@@ -102,15 +102,23 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.home)
         self.editor = self.build_editor()
         self.pages.addWidget(self.editor)
-        self.setCentralWidget(self.pages)
+        central = QWidget()
+        cl = QVBoxLayout(central)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(0)
+        self.update_banner = UpdateBanner(self.updater)
+        cl.addWidget(self.update_banner)
+        cl.addWidget(self.pages, 1)
+        self.setCentralWidget(central)
         self.setStyleSheet(EDITOR_STYLE)
         self.resize(1440, 900)
         self.refresh_all()
         self.select_tool(SELECT)
         self.pages.setCurrentWidget(self.home)
         # o'rnatilgan dasturda: ochilgandan keyin fonda yangilanishni tekshirish
-        if is_frozen() and load_settings()["auto"]:
-            QTimer.singleShot(4000, lambda: self.updater.check(silent=True))
+        if is_frozen():
+            self.updater.start_auto()
+            QTimer.singleShot(800, lambda: show_whats_new(self))
 
     # ================================================================ UI qurish
     def build_actions(self):

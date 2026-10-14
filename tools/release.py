@@ -61,7 +61,8 @@ def cmd_app(_args) -> None:
     os.makedirs(out, exist_ok=True)
     build_app_zip(os.path.join(out, "ttysi_cadastre.zip"))
     with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as f:
-        json.dump({"version": version(), "libs": libs_id()}, f)
+        json.dump({"version": version(), "libs": libs_id(), "notes": clean_notes(_args.notes)}, f,
+                  ensure_ascii=False)
     print("app:", version(), libs_id())
 
 
@@ -94,7 +95,8 @@ def cmd_publish(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("app")
+    a = sub.add_parser("app")
+    a.add_argument("--notes")
     p = sub.add_parser("publish")
     p.add_argument("outdir")
     p.add_argument("--full")

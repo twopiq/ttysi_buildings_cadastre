@@ -40,7 +40,10 @@ jobs:
         shell: bash
         run: echo "version=$(python -c 'import ttysi_cadastre as t; print(t.__version__)')" >> "$GITHUB_OUTPUT"
       - name: Dastur kodi arxivi (yangilanadigan qism)
-        run: python tools/release.py app
+        shell: pwsh
+        env:
+          NOTES: ${{ github.event.head_commit.message }}
+        run: python tools/release.py app --notes "$env:NOTES"
       - name: .exe yig'ish
         run: pyinstaller --noconfirm build.spec
       - name: Yig'ilgan .exe ni sinash (--self-test)

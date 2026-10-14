@@ -70,25 +70,102 @@ def test_powershell_quoting():
     assert updater._ps(r"C:\O'quv\TTYSI") == r"'C:\O''quv\TTYSI'"
 
 
-def test_ui_background_check(tmp_path, monkeypatch):
-    """Fonda tekshirish natijasi asosiy oynaga yetib keladi (oyna qotmaydi)."""
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+def _wait(cond, ms=8000):
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication, QMessageBox
+    for _ in range(ms // 50):
+        if cond():
+            return True
+        QTest.qWait(50)
+    return cond()
+
+
+def _ui(monkeypatch, net):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
     from ttysi_cadastre.ui import update_dialog
-    from ttysi_cadastre.ui.main_window import MainWindow
     QApplication.instance() or QApplication([])
-    net = _publish(tmp_path, "99.1.0", "Yangi imkoniyatlar")
     monkeypatch.setattr(update_dialog, "load_settings",
                         lambda: {"kind": "folder", "folder": str(net), "repo": "", "token": "", "auto": False})
-    shown = []
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
-    w = MainWindow()
+    from ttysi_cadastre.ui.main_window import MainWindow
+    return MainWindow()
+
+
+def test_ui_background_check_source_mode(tmp_path, monkeypatch):
+    """Manba koddan ishlaganda: yangi versiya haqida tepada panel chiqadi, hech narsa yuklanmaydi."""
+    monkeypatch.setenv("TTYSI_UPDATES_DIR", str(tmp_path / "upd"))
+    net = _publish(tmp_path, "99.1.0", "Yangi imkoniyatlar")
+    w = _ui(monkeypatch, net)
     w.updater.check(silent=True)
-    for _ in range(100):
-        if shown:
-            break
-        QTest.qWait(50)
-    assert shown and "99.1.0" in shown[0]
+    assert _wait(lambda: w.updater.state == "available")
+    assert not w.update_banner.isHidden()
+    assert "99.1.0" in w.update_banner.text.text() and "git pull" in w.update_banner.text.text()
+    assert not os.path.exists(tmp_path / "upd" / "99.1.0")
     w.dirty = False
     w.close()
+
+
+def test_ui_auto_download_and_ready(tmp_path, monkeypatch):
+    """O'rnatilgan dastur: kod yangilanishi so'ramasdan fonda yuklanadi, panelda "Qayta ochish"."""
+    monkeypatch.setenv("TTYSI_UPDATES_DIR", str(tmp_path / "upd"))
+    net = _publish(tmp_path, "99.2.0", "- Bosh sahifa\n- Tezroq eksport")
+    libs = json.loads((net / "update.json").read_text())["libs"]
+    monkeypatch.setattr(updater, "is_frozen", lambda: True)
+    monkeypatch.setattr(updater, "bundled_manifest", lambda: {"version": "0.0.1", "libs": libs})
+    w = _ui(monkeypatch, net)
+    w.updater.check(silent=True)
+    assert _wait(lambda: w.updater.state in ("ready", "error")), w.updater.state
+    assert w.updater.state == "ready", w.updater.error
+    assert updater.downloaded("99.2.0")["notes"].startswith("- Bosh sahifa")
+    assert w.update_banner.act.text() == "Qayta ochish"
+    # qayta tekshirilsa - qayta yuklanmaydi
+    w.updater.state = "idle"
+    w.updater.check(silent=True)
+    assert _wait(lambda: w.updater.state == "ready")
+    # ishga tushmagan (BROKEN) versiya - to'liq paket taklif qilinadi
+    open(tmp_path / "upd" / "99.2.0" / "BROKEN", "w").close()
+    w.updater.state = "idle"
+    w.updater.check(silent=True)
+    assert _wait(lambda: w.updater.state == "available")
+    assert w.updater.full and w.update_banner.act.text() == "Yuklab o'rnatish"
+    w.update_banner.dismiss()
+    assert w.update_banner.isHidden()
+    w.dirty = False
+    w.close()
+
+
+def test_ui_error_is_friendly(tmp_path, monkeypatch):
+    w = _ui(monkeypatch, tmp_path / "yoq_papka")
+    w.updater.check(silent=True)
+    assert _wait(lambda: w.updater.state == "error")
+    assert "topilmadi" in w.updater.message()
+    assert w.update_banner.isHidden()                        # fonda xato - bezovta qilmaydi
+    assert w.updater.action() == "Qayta urinish"
+    w.dirty = False
+    w.close()
+
+
+def test_github_private_repo_message(monkeypatch):
+    import urllib.error
+    src = updater.GitHubSource("x/y")
+
+    def fail(url, accept=""):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+    monkeypatch.setattr(src, "_request", fail)
+    with pytest.raises(updater.UpdateError, match="token"):
+        src.manifest()
+    assert "Internetga" in updater.friendly_error(urllib.error.URLError("x"))
+
+
+def test_whats_new_after_update(monkeypatch):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+    from ttysi_cadastre.ui import update_dialog
+    QApplication.instance() or QApplication([])
+    shown = []
+    monkeypatch.setattr(update_dialog.NotesDialog, "exec", lambda self: shown.append(self.windowTitle()))
+    QSettings("TTYSI", "BinolarKadastr").setValue("app/last_version", "0.0.1")
+    assert update_dialog.show_whats_new(None) and shown
+    assert not update_dialog.show_whats_new(None)            # faqat bir marta
+    html = update_dialog.notes_html("Yangiliklar:\n- Bosh sahifa\n- Eksport")
+    assert "<li>Bosh sahifa</li>" in html and "<p>Yangiliklar:</p>" in html
