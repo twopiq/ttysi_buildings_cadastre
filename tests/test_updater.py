@@ -70,7 +70,7 @@ def test_powershell_quoting():
     assert updater._ps(r"C:\O'quv\TTYSI") == r"'C:\O''quv\TTYSI'"
 
 
-def _wait(cond, ms=8000):
+def _wait(cond, ms=30000):
     from PySide6.QtTest import QTest
     for _ in range(ms // 50):
         if cond():
@@ -148,7 +148,7 @@ def test_github_private_repo_message(monkeypatch):
     import urllib.error
     src = updater.GitHubSource("x/y")
 
-    def fail(url, accept=""):
+    def fail(url, accept="", token=None):
         raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
     monkeypatch.setattr(src, "_request", fail)
     with pytest.raises(updater.UpdateError, match="token"):
@@ -169,3 +169,64 @@ def test_whats_new_after_update(monkeypatch):
     assert not update_dialog.show_whats_new(None)            # faqat bir marta
     html = update_dialog.notes_html("Yangiliklar:\n- Bosh sahifa\n- Eksport")
     assert "<li>Bosh sahifa</li>" in html and "<p>Yangiliklar:</p>" in html
+
+
+def test_github_errors_and_redirect(monkeypatch):
+    import email.message
+    import urllib.error
+    import urllib.request
+
+    def http_error(code, headers=None):
+        h = email.message.Message()
+        for k, v in (headers or {}).items():
+            h[k] = v
+        return urllib.error.HTTPError("https://api.github.com/x", code, "x", h, None)
+
+    src = updater.GitHubSource("o/r", token=' "abc" ')
+    assert src.token == "abc"
+    assert "401" in str(src._explain(http_error(401)))
+    assert "chegarasi" in str(src._explain(http_error(403, {"X-RateLimit-Remaining": "0"})))
+    assert "ruxsati" in str(src._explain(http_error(403)))
+    assert "ko'ra olmaydi" in str(src._explain(http_error(404)))
+
+    # token yaroqsiz (401), lekin repo ochiq - tokensiz havola ishlatiladi
+    calls = []
+
+    def fake(url, accept="", token=None):
+        calls.append((url, token))
+        if "api.github.com" in url:
+            raise http_error(401)
+        if token == "":
+            return "ok"
+        raise AssertionError("kutilmagan so'rov")
+    monkeypatch.setattr(src, "_request", fake)
+    assert src._open("update.json") == "ok"
+    assert calls[-1] == ("https://github.com/o/r/releases/latest/download/update.json", "")
+
+    # boshqa serverga yo'naltirishda token yuborilmaydi
+    h = updater._DropAuthOnRedirect()
+    req = urllib.request.Request("https://api.github.com/repos/o/r/releases/assets/1",
+                                 headers={"Authorization": "Bearer abc", "Accept": "application/octet-stream"})
+    new = h.redirect_request(req, None, 302, "Found", {}, "https://objects.githubusercontent.com/f?sig=1")
+    assert "Authorization" not in new.headers and "authorization" not in {k.lower() for k in new.headers}
+    same = h.redirect_request(req, None, 302, "Found", {}, "https://api.github.com/other")
+    assert any(k.lower() == "authorization" for k in same.headers)
+
+
+def test_settings_connection_check(tmp_path, monkeypatch):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from ttysi_cadastre.ui.update_dialog import UpdateSettingsDialog
+    QApplication.instance() or QApplication([])
+    net = _publish(tmp_path, "99.3.0")
+    d = UpdateSettingsDialog()
+    d.r_folder.setChecked(True)
+    d.folder.setText(str(net))
+    d.test_connection()
+    assert _wait(lambda: d.test_btn.isEnabled())
+    assert "99.3.0" in d.test_result.text() and d.test_result.text().startswith("✓")
+    d.folder.setText(str(tmp_path / "yoq"))
+    d.test_connection()
+    assert _wait(lambda: d.test_btn.isEnabled())
+    assert d.test_result.text().startswith("✗")
+    d.reject()

@@ -206,6 +206,8 @@ paket taklif qiladi. Qo'lda tekshirish: **Yordam → Yangilanishni tekshirish** 
 - **Tarmoq yoki mahalliy papka** — institut ichida internetsiz ishlaydi. Relizdagi uchta faylni
   (`update.json`, `ttysi_app-<versiya>.zip`, `TTYSI_Kadastr_Windows.zip`) masalan
   `\\server\TTYSI\yangilanish` papkasiga ko'chiring va dasturlarda shu papkani ko'rsating.
+- Sozlamalar oynasidagi **Ulanishni tekshirish** tugmasi kiritilgan manba/token ishlashini darhol
+  ko'rsatadi (saqlamasdan). Xato bo'lsa, sababi aniq yoziladi (token eskirgan, ruxsat yo'q, limit va h.k.).
 - **Internet (GitHub)** — standart. Repozitoriy ochiq bo'lsa hech qanday sozlash kerak emas. Yopiq
   bo'lsa, "Qo'shimcha" bo'limida faqat o'qish huquqli (Contents: Read-only) fine-grained token kiritiladi.
 

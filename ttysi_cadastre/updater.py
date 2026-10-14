@@ -25,6 +25,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -148,19 +149,59 @@ class FolderSource(Source):
                     progress(done, total)
 
 
+class _DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    """GitHub fayllarni boshqa serverga (objects.githubusercontent.com) yo'naltiradi. U yerga token
+    yuborilmasligi kerak - aks holda server so'rovni rad etadi."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlsplit(newurl).netloc != urllib.parse.urlsplit(req.full_url).netloc:
+            for h in ("Authorization", "authorization"):
+                new.headers.pop(h, None)
+                new.unredirected_hdrs.pop(h, None)
+        return new
+
+
+_opener = urllib.request.build_opener(_DropAuthOnRedirect)
+
+TOKEN_HELP = ("GitHub → Settings → Developer settings → Fine-grained tokens → yangi token: "
+              "Repository access - shu repozitoriy, Permissions - Contents: Read-only.")
+
+
 class GitHubSource(Source):
     """GitHub Releases: oxirgi reliz. Yopiq repo uchun faqat o'qish huquqli token kerak."""
 
     def __init__(self, repo: str = DEFAULT_REPO, token: str = ""):
-        self.repo = repo
-        self.token = token.strip()
+        self.repo = repo.strip().strip("/")
+        self.token = token.strip().strip('"').strip("'")
         self._assets: dict[str, str] | None = None
 
-    def _request(self, url: str, accept: str = "application/vnd.github+json"):
+    def _request(self, url: str, accept: str = "application/vnd.github+json", token: str | None = None):
+        token = self.token if token is None else token
         req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "TTYSI-Kadastr"})
-        if self.token:
-            req.add_header("Authorization", f"Bearer {self.token}")
-        return urllib.request.urlopen(req, timeout=30)
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        return _opener.open(req, timeout=30)
+
+    def _explain(self, e: urllib.error.HTTPError) -> UpdateError:
+        """GitHub javobini aniq, foydalanuvchi tushunadigan sababga aylantiradi."""
+        code = e.code
+        remaining = (e.headers or {}).get("X-RateLimit-Remaining") if e.headers else None
+        if code == 403 and remaining == "0":
+            return UpdateError("GitHub so'rovlar chegarasi tugadi (403). Bir soatdan keyin urinib ko'ring "
+                               "yoki token kiriting.")
+        if code == 401:
+            return UpdateError("Token noto'g'ri yoki muddati o'tgan (GitHub 401). Yangilanish sozlamalarida "
+                               "yangi token kiriting. " + TOKEN_HELP)
+        if code == 403:
+            return UpdateError("Tokenga bu repozitoriyni o'qish ruxsati berilmagan (GitHub 403). " + TOKEN_HELP)
+        if code == 404:
+            if self.token:
+                return UpdateError(f"Token \"{self.repo}\" repozitoriyini ko'ra olmaydi yoki reliz yo'q "
+                                   "(GitHub 404). " + TOKEN_HELP)
+            return UpdateError("Yangilanish topilmadi: repozitoriy yopiq. Yangilanish sozlamalarida token "
+                               "kiriting yoki tarmoq papkasini ko'rsating.")
+        return UpdateError(f"GitHub xatosi ({code}). Keyinroq urinib ko'ring.")
 
     def _asset_urls(self) -> dict[str, str]:
         if self._assets is None:
@@ -169,24 +210,28 @@ class GitHubSource(Source):
             self._assets = {a["name"]: a["url"] for a in rel.get("assets", [])}
         return self._assets
 
-    def _url(self, name: str) -> tuple[str, str]:
-        """(manzil, Accept). Token bo'lmasa - ochiq havola (API limitlari yo'q), bo'lsa - API orqali."""
-        if not self.token:
-            return f"https://github.com/{self.repo}/releases/latest/download/{name}", "application/octet-stream"
-        url = self._asset_urls().get(name)
-        if not url:
-            raise UpdateError(f"Oxirgi relizda fayl topilmadi: {name}")
-        return url, "application/octet-stream"
-
     def _open(self, name: str):
-        url, accept = self._url(name)
+        public = f"https://github.com/{self.repo}/releases/latest/download/{name}"
         try:
-            return self._request(url, accept)
+            if not self.token:
+                return self._request(public, "application/octet-stream")
+            try:
+                url = self._asset_urls().get(name)
+            except urllib.error.HTTPError as e:
+                if e.code == 401:
+                    # token yaroqsiz - repozitoriy ochiq bo'lsa tokensiz ham ishlaydi
+                    try:
+                        return self._request(public, "application/octet-stream", token="")
+                    except urllib.error.HTTPError:
+                        pass
+                raise
+            if not url:
+                raise UpdateError(f"Oxirgi relizda fayl topilmadi: {name}")
+            return self._request(url, "application/octet-stream")
         except urllib.error.HTTPError as e:
-            if e.code == 404 and not self.token:
-                raise UpdateError("Yangilanish topilmadi. Repozitoriy yopiq bo'lsa, Yangilanish sozlamalarida "
-                                  "token kiriting yoki tarmoq papkasini ko'rsating.") from e
-            raise
+            if e.code >= 500:
+                raise           # server vaqtincha ishlamayapti - qayta urinish mumkin
+            raise self._explain(e) from e
 
     def manifest(self) -> dict:
         with self._open(MANIFEST_NAME) as r:

@@ -407,7 +407,7 @@ class UpdateDialog(QDialog):
         super().__init__(parent)
         self.upd = upd
         self.setWindowTitle("Yangilanish")
-        self.resize(520, 380)
+        self.setMinimumWidth(520)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, 20, 24, 20)
         lay.setSpacing(12)
@@ -428,7 +428,7 @@ class UpdateDialog(QDialog):
         lay.addWidget(self.notes, 1)
         row = QHBoxLayout()
         sb = QPushButton("Sozlamalar...")
-        sb.clicked.connect(lambda: UpdateSettingsDialog(self).exec())
+        sb.clicked.connect(self.open_settings)
         row.addWidget(sb)
         row.addStretch()
         close = QPushButton("Yopish")
@@ -442,6 +442,11 @@ class UpdateDialog(QDialog):
         upd.changed.connect(self.refresh)
         self.finished.connect(lambda _: self._disconnect())
         self.refresh()
+
+    def open_settings(self):
+        if UpdateSettingsDialog(self).exec() == QDialog.Accepted and not self.upd.busy:
+            self.upd.state = "idle"
+            self.upd.check(silent=True)          # yangi sozlamalar bilan qayta tekshirish
 
     def _disconnect(self):
         try:
@@ -461,7 +466,9 @@ class UpdateDialog(QDialog):
         elif u.state == "downloading":
             self.bar.setMaximum(u.total_bytes or 0)
             self.bar.setValue(u.done_bytes)
-        self.notes.setVisible(bool(u.info) and u.state != "latest")
+        self.notes.setVisible(bool(u.info) and u.state not in ("latest", "error"))
+        if not self.notes.isVisible():
+            self.adjustSize()
         if u.info:
             self.notes.setHtml(f"<b>Versiya {u.version}: nima yangi</b>" + notes_html(u.info.notes))
         a = u.action()
@@ -535,7 +542,14 @@ class UpdateSettingsDialog(QDialog):
         info = QLabel(f"Joriy versiya: {__version__} · oxirgi tekshirish: {when}")
         info.setObjectName("muted")
         lay.addWidget(info)
+        self.test_result = QLabel()
+        self.test_result.setWordWrap(True)
+        self.test_result.hide()
+        lay.addWidget(self.test_result)
         row = QHBoxLayout()
+        self.test_btn = QPushButton("Ulanishni tekshirish")
+        self.test_btn.clicked.connect(self.test_connection)
+        row.addWidget(self.test_btn)
         row.addStretch()
         cancel = QPushButton("Bekor qilish")
         cancel.clicked.connect(self.reject)
@@ -546,6 +560,34 @@ class UpdateSettingsDialog(QDialog):
         row.addWidget(ok)
         lay.addLayout(row)
 
+    def current(self) -> dict:
+        return {"kind": "folder" if self.r_folder.isChecked() else "github",
+                "folder": self.folder.text().strip(), "repo": self.repo.text().strip() or updater.DEFAULT_REPO,
+                "token": self.token.text().strip(), "auto": self.auto.isChecked()}
+
+    def test_connection(self):
+        """Kiritilgan sozlamalar bilan update.json ni o'qib ko'radi (saqlamasdan)."""
+        self.test_btn.setEnabled(False)
+        self.test_result.setStyleSheet(f"color: {theme.INK_2}")
+        self.test_result.setText("Tekshirilmoqda...")
+        self.test_result.show()
+        st = self.current()
+
+        def job(_p):
+            return updater.make_source(st).manifest()
+
+        def done(man, err):
+            self.test_btn.setEnabled(True)
+            if err is not None:
+                self.test_result.setStyleSheet(f"color: {theme.DANGER_FG}; font-weight: 600")
+                self.test_result.setText("✗ " + updater.friendly_error(err))
+            else:
+                self.test_result.setStyleSheet(f"color: {theme.OK_FG}; font-weight: 600")
+                self.test_result.setText(f"✓ Ulanish ishlayapti. Oxirgi versiya: {man.get('version', '?')}")
+
+        self.threads = getattr(self, "threads", [])
+        run_in_thread(self, job, done)
+
     def pick_folder(self):
         d = QFileDialog.getExistingDirectory(self, "Yangilanishlar papkasi", self.folder.text())
         if d:
@@ -553,7 +595,14 @@ class UpdateSettingsDialog(QDialog):
             self.r_folder.setChecked(True)
 
     def accept(self):
-        save_settings({"kind": "folder" if self.r_folder.isChecked() else "github",
-                       "folder": self.folder.text().strip(), "repo": self.repo.text().strip() or updater.DEFAULT_REPO,
-                       "token": self.token.text().strip(), "auto": self.auto.isChecked()})
+        save_settings(self.current())
         super().accept()
+
+    def done(self, r):
+        for t in getattr(self, "threads", []):      # tekshirish tugashini kutish (oqim yopilmasdan)
+            try:
+                t.quit()
+                t.wait(5000)
+            except RuntimeError:
+                pass
+        super().done(r)
