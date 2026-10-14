@@ -151,13 +151,12 @@ class ParamsWidget(QGroupBox):
         form.addRow(self.frac_box)
         self.set_metric(metric)
 
-        self.blue = QCheckBox("Ko'k ruchka belgilarini topish")
+        self.blue = QCheckBox("AT belgilari: ko'k ruchka")
         self.blue.setChecked(p.detect_blue)
         form.addRow(self.blue)
         self.sens = self._slider(0, 100, int(p.blue_sensitivity * 100))
-        form.addRow("Ko'k rang sezgirligi:", self._with_value(self.sens, lambda v: f"{v}%"))
-        self.black = QCheckBox("Qora yozuvlarni ham belgi nomzodi qilish\n"
-                               "(ishonchsiz: bosma raqamlar ham tushadi)")
+        form.addRow("Belgilar sezgirligi:", self._with_value(self.sens, lambda v: f"{v}%"))
+        self.black = QCheckBox("AT belgilari: qora ruchka (qo'lyozma)")
         self.black.setChecked(p.detect_black)
         form.addRow(self.black)
         self.ortho = QCheckBox("Devorlarni gorizontal/vertikal tekislash")

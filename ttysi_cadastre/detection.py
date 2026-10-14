@@ -37,8 +37,8 @@ class DetectParams:
     door_gap: float = 0.04         # eshik/teshiklarni yopish (rasm o'lchamiga nisbatan)
     min_room: float = 0.0015       # eng kichik xona maydoni (rasm maydoniga nisbatan)
     detect_blue: bool = True       # ko'k ruchka belgilarini topish
-    detect_black: bool = False     # qora qo'lyozma/matnni ham nomzod qilish (ishonchsiz)
-    blue_sensitivity: float = 0.5  # 0..1, kattaroq - ko'proq iz topadi
+    detect_black: bool = True      # qora ruchkadagi qo'lyozma (bosma chizmadan to'q va qalin izlar)
+    blue_sensitivity: float = 0.5  # 0..1, belgilarni topish sezgirligi (kattaroq - ko'proq)
     orthogonal: bool = True        # devorlarni gorizontal/vertikalga tekislash
 
 
@@ -483,13 +483,13 @@ def detect(img: np.ndarray, params: DetectParams | None = None) -> DetectionResu
     big = max(h, w)
     result = DetectionResult()
 
-    # --- ko'k ruchka
+    # --- AT belgilari (ko'k va qora ruchka) - alohida modul (marks.py), natija asl rasm piksellarida
     bmask = blue_mask(work, p.blue_sensitivity)
-    if p.detect_blue:
-        join = max(5, int(big * 0.012)) | 1
-        marks = cluster_blobs(bmask, join, min_area=max(6, int(big * 0.004)),
-                              max_area=int(h * w * 0.01))
-        result.marks.extend(marks)
+    if p.detect_blue or p.detect_black:
+        from .marks import MarkParams, detect_marks
+        found = detect_marks(img, MarkParams(blue=p.detect_blue, black=p.detect_black,
+                                             sensitivity=p.blue_sensitivity))
+        result.marks.extend((m.x * scale, m.y * scale) for m in found)   # pastda / scale qilinadi
 
     # --- qora chiziqlar (ko'k izlar olib tashlanadi)
     gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
@@ -533,13 +533,8 @@ def detect(img: np.ndarray, params: DetectParams | None = None) -> DetectionResu
     is_text[0] = False
     is_wall = ~is_text
     is_wall[0] = False
-    text = (is_text[labels] * 255).astype(np.uint8)
     walls = (is_wall[labels] * 255).astype(np.uint8)
 
-    if p.detect_black:
-        join = max(5, int(big * 0.01)) | 1
-        result.marks.extend(cluster_blobs(text, join, min_area=max(8, int(big * 0.005)),
-                                          max_area=int(h * w * 0.004)))
 
     # Faqat to'g'ri (gorizontal/vertikal) chiziqlar - devorlar. Egri eshik yoylari va
     # qiya shtrixlar tushib qoladi, aks holda ular koridorni bo'laklab yuboradi.

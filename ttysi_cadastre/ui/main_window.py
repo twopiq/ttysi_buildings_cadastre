@@ -177,6 +177,7 @@ class MainWindow(QMainWindow):
         A(m, "PDF / rasmdan yangi etaj qo'shish...", self.add_floor_from_image, "Ctrl+I", "floor.import")
         A(m, "Bo'sh etaj qo'shish", self.add_empty_floor, None, "floor.empty")
         A(m, "Qayta avtomatik chizish...", self.redetect, None, "floor.redetect")
+        A(m, "AT belgilarini aniqlash...", lambda: self.detect_marks(), "Ctrl+Shift+M", "floor.detect_marks")
         A(m, "Kadastr rasmini almashtirish...", self.replace_floor_image, None, "floor.replace_image")
         A(m, "Kadastr rasmini olib tashlash", self.remove_floor_image, None, "floor.remove_image")
         A(m, "Fonni surish", lambda: self.select_tool(BG_MOVE), None, "floor.bg_move")
@@ -802,6 +803,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction("Kadastr rasmini almashtirish...", self.replace_floor_image)
         m.addAction("Qayta avtomatik chizish...", self.redetect)
+        m.addAction("AT belgilarini aniqlash...", lambda: self.detect_marks())
         m.addAction("Xonalarni qayta raqamlash...", self.renumber_rooms)
         m.addSeparator()
         m.addAction("Etajni o'chirish", self.delete_floor)
@@ -814,7 +816,10 @@ class MainWindow(QMainWindow):
             self.select_tool(SELECT)
             self.view.zoom_fit()
         elif i == 3:
-            self.open_review()
+            if self.floor is not None and self.floor.image and not any(e.code == "?" for e in self.floor.equipment):
+                self.detect_marks()
+            else:
+                self.open_review()
         elif i == 4:
             self.export()
 
@@ -1757,6 +1762,40 @@ class MainWindow(QMainWindow):
         self.refresh_floor_list()
         self.set_dirty()
         self.statusBar().showMessage(msg, 10000)
+
+    def detect_marks(self, dialog_hook=None, review: bool = True) -> int:
+        """AT belgilarini kadastr rasmidan alohida aniqlash (xonalarga tegmaydi).
+
+        Topilganlar "?" belgi sifatida qo'shiladi va tasdiqlash ekrani ochiladi.
+        dialog_hook - testlar uchun: oynani ko'rsatish o'rniga chaqiriladi. Natija - qo'shilgan belgilar soni.
+        """
+        f = self.floor
+        if f is None or not f.image:
+            QMessageBox.information(self, "AT belgilarini aniqlash", "Bu etajda kadastr rasmi yo'q.")
+            return 0
+        from .marks_dialog import MarksDialog
+        img = decode_image(f.image)
+        dlg = MarksDialog(f, img, self)
+        if (dialog_hook(dlg) if dialog_hook else dlg.exec()) != QDialog.Accepted:
+            return 0
+        k = f.width / max(1, img.shape[1])
+        if dlg.replace():
+            f.equipment = [e for e in f.equipment if e.code != "?"]
+        near = meter_px(f) * 0.8
+        added = 0
+        for m in dlg.marks():
+            x, y = bg_map(f, m.x * k, m.y * k)
+            if all(math.hypot(x - e.x, y - e.y) > near for e in f.equipment):
+                f.equipment.append(Equipment(code="?", x=x, y=y))
+                added += 1
+        self.histories[f.id].push(f)
+        self.show_floor(f, keep_view=True)
+        self.refresh_floor_list()
+        self.set_dirty()
+        self.statusBar().showMessage(f"{added} ta AT belgisi nomzodi qo'shildi - turini tasdiqlang.", 8000)
+        if review and added:
+            self.open_review()
+        return added
 
     def renumber_rooms(self):
         """Xonalarni chapdan o'ngga, yuqoridan pastga qayta raqamlash."""

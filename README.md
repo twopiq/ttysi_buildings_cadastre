@@ -87,8 +87,16 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
    - **Telefon rasmi:** dastur qog'oz burchaklarini o'zi topadi va perspektivani to'g'rilaydi. Ko'k
      nuqtalarni qo'lda ham surish mumkin. Masshtabni keyin "Masshtabni belgilash" orqali berasiz.
 2. **Avtomatik chizish.** Dastur devorlarni topib, xonalar va koridorlarni ko'pburchak qilib chizadi
-   va **raqamlaydi** (keyin qo'lda tuzatiladi). **Ko'k ruchka** izlarini esa `?` belgisi bilan AT
-   nomzodi sifatida belgilaydi.
+   va **raqamlaydi** (keyin qo'lda tuzatiladi). Ko'k va qora ruchkadagi qo'lyozma belgilarni esa `?`
+   belgisi bilan AT nomzodi sifatida belgilaydi.
+
+   **AT belgilarini alohida aniqlash** (**Etaj → AT belgilarini aniqlash...**, `Ctrl+Shift+M`, etaj
+   yorlig'ining menyusi yoki "Belgilarni tasdiqlash" qadami): xonalarga tegmasdan faqat qo'lyozma
+   belgilar qayta qidiriladi. Oynada kadastr rasmi va topilgan nomzodlar ko'rinadi (ko'k ruchka — ko'k,
+   qora ruchka — qizil ramka); noto'g'ri ramkani bosib chiqarib tashlaysiz. Sozlamalar: ko'k/qora ruchka,
+   sezgirlik, "faqat bino ichida", natija `?` lar o'rniga yoki mavjudlariga qo'shilsin. Qora ruchka
+   kulrang (nusxa) bosma chizmadan to'q va qalin izi, qiya/egri chiziqlari bo'yicha ajratiladi; devor
+   ustiga yozilgan belgi ham topiladi. Toza qora bosma PDF'da qora qo'lyozma qidirilmaydi.
 3. **Belgilarni tasdiqlash ekrani.** Etaj qo'shilgach, `?` belgilar bo'lsa, tasdiqlash ekrani o'zi
    ochiladi (keyin ham: **Tahrirlash → Belgilarni tasdiqlash**, `Ctrl+T`, yoki o'ng paneldagi
    "Tasdiqlash" havolasi). Har bir belgi uchun kadastr rasmining kattalashtirilgan bo'lagi ko'rsatiladi
@@ -98,7 +106,7 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
    - `Del` — "belgi emas" (o'chiriladi), `N` — o'tkazib yuborish (navbat oxiriga);
    - pastda navbatdagi belgilar ko'rinadi, yuqorida — nechtasi qolgani.
 
-   Hamma o'zgarishlar `Ctrl+Z` bilan bekor qilinadi. Qora ruchkadagi belgilarni chap paneldan qo'lda
+   Hamma o'zgarishlar `Ctrl+Z` bilan bekor qilinadi. Topilmay qolgan belgilarni chap paneldan qo'lda
    qo'yasiz.
 4. **Tuzatish:**
    - burchaklarni sudrash;

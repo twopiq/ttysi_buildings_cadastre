@@ -198,6 +198,15 @@ def bg_map(floor, x: float, y: float) -> tuple[float, float]:
             cy + s * (dx * math.sin(a) + dy * math.cos(a)) + floor.bg_dy)
 
 
+def bg_unmap(floor, x: float, y: float) -> tuple[float, float]:
+    """bg_map ning teskarisi: chizma koordinatasi -> fon rasmidagi nuqta (etaj kengligiga keltirilgan)."""
+    cx, cy = floor.width / 2, floor.height / 2
+    a = math.radians(-floor.bg_rot)
+    s = floor.bg_scale or 1.0
+    dx, dy = (x - floor.bg_dx - cx) / s, (y - floor.bg_dy - cy) / s
+    return cx + dx * math.cos(a) - dy * math.sin(a), cy + dx * math.sin(a) + dy * math.cos(a)
+
+
 def bg_compose(floor, scale: float, angle: float, tx: float, ty: float) -> None:
     """Fonga qo'shimcha o'xshashlik o'zgarishi qo'llaydi: p -> scale*R(angle)*p + (tx, ty) (chizma
     koordinatalarida). Natija yana (siljish, masshtab, burilish) parametrlariga yoziladi."""
