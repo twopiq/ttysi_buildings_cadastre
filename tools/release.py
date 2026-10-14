@@ -89,7 +89,7 @@ def cmd_publish(args) -> None:
         manifest.update(full_zip=full_name, full_sha256=sha256(args.full))
     with open(os.path.join(args.outdir, "update.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)
-    print(json.dumps(manifest, ensure_ascii=False, indent=1))
+    print(json.dumps(manifest, ensure_ascii=True, indent=1))
 
 
 def main() -> None:
