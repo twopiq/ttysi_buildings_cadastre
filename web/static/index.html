@@ -27,6 +27,8 @@
   <div class="home-head">
     <h1>Binolar</h1>
     <input id="search" type="search" placeholder="Bino yoki tashkilot qidirish" autocomplete="off">
+    <button class="ghost" id="new-org" hidden>+ Tashkilot</button>
+    <button class="primary" id="new-b" hidden>+ Bino</button>
   </div>
   <div id="tree"></div>
 </main>
@@ -80,6 +82,7 @@
   <div class="sheet-card">
     <div class="sheet-head"><b id="sheet-title"></b><button id="sheet-close" aria-label="Yopish">✕</button></div>
     <div class="sheet-room" id="sheet-room"></div>
+    <img class="crop" id="sheet-crop" alt="Kadastr rasmidagi belgi" hidden>
     <div class="sheet-types" id="sheet-types"></div>
     <div class="sheet-row">
       <label><input type="radio" name="st" value="existing"> Mavjud</label>
@@ -91,6 +94,41 @@
       <button class="primary" id="sheet-save">Saqlash</button>
     </div>
   </div>
+</div>
+
+<div class="sheet" id="newb" hidden>
+  <form class="sheet-card" id="newb-form">
+    <div class="sheet-head"><b>Yangi bino</b><button type="button" class="x" data-close="newb" aria-label="Yopish">✕</button></div>
+    <input id="nb-name" placeholder="Bino nomi (masalan: 1-bino)" required maxlength="120">
+    <input id="nb-addr" placeholder="Manzil (ixtiyoriy)" maxlength="300">
+    <select id="nb-org"></select>
+    <button class="primary">Yaratish va etaj yuklash</button>
+    <div class="err" id="nb-err"></div>
+  </form>
+</div>
+
+<div class="sheet" id="up" hidden>
+  <form class="sheet-card" id="up-form">
+    <div class="sheet-head"><b>Etaj qo'shish</b><button type="button" class="x" data-close="up" aria-label="Yopish">✕</button></div>
+    <p class="muted">Kadastr PDF, skaner yoki telefon rasmi. Telefonda kamera bilan ham olish mumkin —
+      qog'ozni to'liq, tekis va yorug' joyda suratga oling.</p>
+    <label class="file"><input type="file" id="up-file" accept="application/pdf,image/*">
+      <span id="up-file-name">Fayl tanlash yoki suratga olish</span></label>
+    <div id="up-pages" class="sheet-row" hidden>
+      <label>PDF sahifasi <select id="up-page"></select></label>
+    </div>
+    <img id="up-preview" alt="Ko'rinish" hidden>
+    <input id="up-name" placeholder="Etaj nomi (masalan: 2-qavat)" maxlength="80">
+    <label>Nisbat (shtampda)
+      <select id="up-ratio">
+        <option value="0">noma'lum</option><option>100</option><option>200</option><option>250</option>
+        <option selected>300</option><option>400</option><option>500</option>
+      </select></label>
+    <label class="chk"><input type="checkbox" id="up-auto" checked> Xonalarni va AT belgilarini avtomatik aniqlash</label>
+    <button class="primary" id="up-go" disabled>Yuklash</button>
+    <div class="progress" id="up-progress" hidden><span></span></div>
+    <div class="muted" id="up-status"></div>
+  </form>
 </div>
 
 <div class="login" id="login" hidden>

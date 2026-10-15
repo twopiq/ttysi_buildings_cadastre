@@ -159,3 +159,85 @@ def test_web_users_roles_and_journal(tmp_path):
     assert "parol123" not in raw and "yangi12345" not in raw       # parollar ochiq saqlanmaydi
     assert Store(str(ws)).check_password("aziz", "yangi12345")
     assert [b["name"] for b in c.get("/api/workspace").json()["buildings"]] == ["3-bino"]   # .ttysi-web - tashkilot emas
+
+
+def _pdf_bytes(img, path):
+    """Rasmni A4 PDF sahifasiga joylash (Qt bilan) - sinov uchun."""
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QMarginsF, QRectF
+    from PySide6.QtGui import QImage, QPageLayout, QPageSize, QPainter, QPdfWriter
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    h, w = img.shape[:2]
+    q = QImage(img.data, w, h, 3 * w, QImage.Format_BGR888).copy()
+    wr = QPdfWriter(path)
+    wr.setResolution(150)
+    wr.setPageLayout(QPageLayout(QPageSize(QPageSize.A4), QPageLayout.Landscape, QMarginsF(0, 0, 0, 0)))
+    p = QPainter(wr)
+    r = wr.pageLayout().paintRectPixels(150)
+    p.drawImage(QRectF(0, 0, r.width(), r.height()), q)
+    wr.newPage()
+    p.drawImage(QRectF(0, 0, r.width() / 2, r.height() / 2), q)
+    p.end()
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _wait(c, job):
+    import time as _t
+    for _ in range(300):
+        st = c.get(f"/api/jobs/{job}").json()
+        if st["status"] in ("done", "error"):
+            return st
+        _t.sleep(0.1)
+    raise AssertionError("vazifa tugamadi")
+
+
+def test_web_new_building_and_floor_upload(tmp_path):
+    import cv2
+    from tests.synthetic import ROOMS, make_plan
+    ws = _workspace(tmp_path)
+    c = TestClient(create_app(str(ws), pin=""))
+
+    org = c.post("/api/orgs", json={"name": "7-maktab"}).json()
+    assert org["name"] == "7-maktab" and (ws / "7-maktab").is_dir()
+    bid = c.post("/api/buildings", json={"name": "Yangi bino", "org": org["id"]}).json()["id"]
+    assert bid == "7-maktab/Yangi bino.ttysi"
+    assert c.post("/api/buildings", json={"name": "x", "org": "../.."}).status_code == 404
+
+    # rasm (skaner): avtomatik chizish
+    ok, png = cv2.imencode(".png", make_plan(True))
+    up = c.post("/api/upload", files={"file": ("plan.png", png.tobytes(), "image/png")}).json()
+    assert up["kind"] == "image" and up["pages"] == 1
+    assert c.get("/api/upload/preview", params={"token": up["token"]}).headers["content-type"] == "image/jpeg"
+    job = c.post(f"/api/floors?id={bid}", json={"token": up["token"], "name": "1-qavat"}).json()["job"]
+    st = _wait(c, job)
+    assert st["status"] == "done", st
+    b = c.get("/api/building", params={"id": bid}).json()
+    f = b["floors"][0]
+    assert f["name"] == "1-qavat" and len(f["rooms"]) == len(ROOMS) and f["unknown"] >= 4 and f["has_image"]
+
+    q = next(e for e in f["equipment"] if e["code"] == "?")
+    crop = c.get("/api/mark-crop", params={"id": bid, "floor": 0, "x": q["x"], "y": q["y"]})
+    assert crop.status_code == 200 and crop.content[:2] == b"\xff\xd8"          # JPEG
+    import numpy as np
+    im = cv2.imdecode(np.frombuffer(crop.content, np.uint8), cv2.IMREAD_COLOR)
+    assert im.shape[:2] == (240, 360) and (im[..., 0].astype(int) - im[..., 2]).max() > 60   # ko'k ruchka ko'rinadi
+
+    # PDF: 2 sahifa, 1-sahifa, nisbat 1:200 -> masshtab, avtomatik chizishsiz
+    pdf = _pdf_bytes(make_plan(False), str(tmp_path / "k.pdf"))
+    up = c.post("/api/upload", files={"file": ("k.pdf", pdf, "application/pdf")}).json()
+    assert up["kind"] == "pdf" and up["pages"] == 2
+    st = _wait(c, c.post(f"/api/floors?id={bid}", json={"token": up["token"], "page": 0, "ratio": 200,
+                                                         "auto": False}).json()["job"])
+    assert st["status"] == "done" and st["floor"] == 1
+    f2 = c.get("/api/building", params={"id": bid}).json()["floors"][1]
+    assert f2["name"] == "2-qavat" and f2["rooms"] == [] and f2["ratio"] == 200
+    assert f2["scale_m_per_px"] and f2["scale_m_per_px"] > 0          # PDF + nisbat -> masshtab
+
+    # noto'g'ri fayl va eskirgan token
+    assert c.post("/api/upload", files={"file": ("a.txt", b"salom", "text/plain")}).status_code == 422
+    assert c.post(f"/api/floors?id={bid}", json={"token": "0" * 32}).status_code == 404
+    j = c.get("/api/journal", params={"id": bid}).json()["items"]
+    assert [r["action"] for r in j[:2]] == ["floor_add", "floor_add"]

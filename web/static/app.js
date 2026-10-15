@@ -81,6 +81,8 @@ async function loadMe() {
     $("user-menu").insertBefore(setupBtn, $("logout"));
   }
   if (setupBtn) setupBtn.hidden = !S.me.setup;
+  $("new-b").hidden = !(u && u.role !== "viewer");
+  $("new-org").hidden = !(u && u.role === "admin");
 }
 const canEdit = () => S.me && S.me.user && S.me.user.role !== "viewer";
 $("user").onclick = (e) => { e.stopPropagation(); $("user-menu").hidden = !$("user-menu").hidden; };
@@ -215,9 +217,18 @@ function renderBuilding(fit) {
     b.org ? `${b.org} › ` : "", b.name);
   $("floors").replaceChildren(...b.floors.map((f, i) => el("button", {
     "aria-current": i === S.fi ? "true" : "false", onclick: () => { location.hash = `#/b/${encodeURIComponent(b.id)}/${i}`; },
-  }, f.name, f.unknown ? el("span", { class: "badge", text: f.unknown }) : null)));
+  }, f.name, f.unknown ? el("span", { class: "badge", text: f.unknown }) : null)),
+    canEdit() ? el("button", { class: "add", text: "+ Etaj", onclick: openUpload }) : null);
   $("report").href = `/api/report.xlsx?id=${encodeURIComponent(b.id)}`;
-  if (!b.floors.length) { $("plan").replaceChildren(); $("hint").textContent = "Bu binoda etaj yo'q"; return; }
+  $("empty-floor")?.remove();
+  $("side").hidden = !b.floors.length;
+  if (!b.floors.length) {
+    $("plan").replaceChildren(); $("hint").textContent = "";
+    $("plan-wrap").append(el("div", { class: "empty-floor", id: "empty-floor" },
+      el("b", { text: "Bu binoda hali etaj yo'q" }),
+      canEdit() ? el("button", { class: "primary", text: "Kadastr rasmini yuklash", onclick: openUpload }) : null));
+    return;
+  }
   renderPalette(); renderPlan(); renderStats(); loadBuildingJournal();
   if (fit) fitView();
 }
@@ -401,6 +412,9 @@ function openSheet(id) {
   sheetCode = e.code;
   $("sheet-title").textContent = type(e.code).name;
   $("sheet-room").textContent = e.room ? `Xona: ${e.room}` : "Xonadan tashqarida";
+  const crop = $("sheet-crop");
+  crop.hidden = !floor().has_image;
+  if (floor().has_image) crop.src = `/api/mark-crop?id=${encodeURIComponent(S.b.id)}&floor=${S.fi}&x=${e.x}&y=${e.y}`;
   const types = $("sheet-types");
   const draw = () => types.replaceChildren(...S.info.equipment.filter((t) => t.code !== "?").map((t) => el("button", {
     class: t.square ? "sq" : "", style: `background:${t.color}`, "aria-pressed": sheetCode === t.code ? "true" : "false",
@@ -441,11 +455,96 @@ document.addEventListener("keydown", (e) => {
   if (t && canEdit()) { S.tool = S.tool === t.code ? null : t.code; renderPalette(); }
 });
 
+// ------------------------------------------------------------------ yangi bino, tashkilot, etaj
+function openSheetEl(id) { $(id).hidden = false; }
+for (const b of document.querySelectorAll("[data-close]")) b.onclick = () => { $(b.dataset.close).hidden = true; };
+$("new-b").onclick = () => {
+  $("nb-org").replaceChildren(el("option", { value: "", text: "— tashkilotsiz —" }),
+    ...(S.tree ? S.tree.orgs : []).map((o) => el("option", { value: o.id, text: o.name })));
+  $("nb-name").value = ""; $("nb-addr").value = ""; $("nb-err").textContent = "";
+  openSheetEl("newb"); $("nb-name").focus();
+};
+$("newb-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api("/api/buildings", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: $("nb-name").value.trim(), address: $("nb-addr").value, org: $("nb-org").value || null }) });
+    const { id } = await r.json();
+    $("newb").hidden = true; S.b = null; S.afterOpen = openUpload;
+    location.hash = `#/b/${encodeURIComponent(id)}/0`;
+  } catch (err) { $("nb-err").textContent = err.message; }
+});
+$("new-org").onclick = async () => {
+  const name = prompt("Tashkilot nomi (masalan: 5-maktab)");
+  if (!name || !name.trim()) return;
+  try { await api("/api/orgs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) });
+    toast("Tashkilot yaratildi ✓"); showHome(); } catch (err) { toast(err.message); }
+};
+
+let upToken = null;
+function openUpload() {
+  upToken = null;
+  $("up-form").reset(); $("up-file-name").textContent = "Fayl tanlash yoki suratga olish";
+  $("up-pages").hidden = true; $("up-preview").hidden = true; $("up-go").disabled = true;
+  $("up-progress").hidden = true; $("up-status").textContent = "";
+  $("up-name").value = `${(S.b ? S.b.floors.length : 0) + 1}-qavat`;
+  openSheetEl("up");
+}
+$("up-file").addEventListener("change", async () => {
+  const f = $("up-file").files[0]; if (!f) return;
+  $("up-file-name").textContent = f.name; $("up-go").disabled = true; $("up-status").textContent = "Yuklanmoqda…";
+  $("up-progress").hidden = false;
+  try {
+    const fd = new FormData(); fd.append("file", f);
+    const info = await (await api("/api/upload", { method: "POST", body: fd })).json();
+    upToken = info.token;
+    $("up-ratio").value = info.kind === "pdf" ? "300" : "0";
+    $("up-pages").hidden = info.pages < 2;
+    $("up-page").replaceChildren(...Array.from({ length: info.pages }, (_, i) => el("option", { value: i, text: `${i + 1}-sahifa` })));
+    showPreview();
+    $("up-status").textContent = info.kind === "pdf" ? "PDF: nisbatni tekshiring — maydonlar m² da chiqadi."
+      : "Rasm: qog'oz burchaklari topilsa, perspektiva o'zi to'g'rilanadi. Masshtabni keyin dasturda belgilash mumkin.";
+    $("up-go").disabled = false;
+  } catch (err) { $("up-status").textContent = err.message; }
+  $("up-progress").hidden = true;
+});
+function showPreview() {
+  if (!upToken) return;
+  $("up-preview").src = `/api/upload/preview?token=${upToken}&page=${$("up-page").value || 0}`; $("up-preview").hidden = false;
+}
+$("up-page").addEventListener("change", showPreview);
+$("up-form").addEventListener("submit", async (e) => {
+  e.preventDefault(); if (!upToken) return;
+  $("up-go").disabled = true; $("up-progress").hidden = false;
+  try {
+    const r = await api(`/api/floors?id=${encodeURIComponent(S.b.id)}`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: upToken, page: +($("up-page").value || 0), name: $("up-name").value.trim(),
+        ratio: +$("up-ratio").value, auto: $("up-auto").checked }) });
+    const { job } = await r.json();
+    let st;
+    for (;;) {
+      st = await (await api(`/api/jobs/${job}`)).json();
+      $("up-status").textContent = st.message;
+      if (st.status === "done" || st.status === "error") break;
+      await new Promise((ok) => setTimeout(ok, 1000));
+    }
+    if (st.status === "error") throw new Error(st.message);
+    $("up").hidden = true;
+    const id = S.b.id; S.b = null;
+    S.afterOpen = () => { toast(st.message); if (floor() && floor().unknown) setTimeout(nextUnknown, 400); };
+    if (location.hash === `#/b/${encodeURIComponent(id)}/${st.floor}`) route(); else location.hash = `#/b/${encodeURIComponent(id)}/${st.floor}`;
+  } catch (err) { $("up-status").textContent = err.message; $("up-go").disabled = false; }
+  $("up-progress").hidden = true;
+});
+
 // ------------------------------------------------------------------ yo'naltirish
 async function route() {
   try {
     const m = location.hash.match(/^#\/b\/([^/]+)\/(\d+)/);
-    if (m) await showBuilding(decodeURIComponent(m[1]), +m[2]);
+    if (m) {
+      await showBuilding(decodeURIComponent(m[1]), +m[2]);
+      const after = S.afterOpen; S.afterOpen = null; if (after) after();
+    }
     else if (location.hash === "#/users") await showUsers();
     else if (location.hash === "#/journal") await showJournal();
     else { S.b = null; await showHome(); }

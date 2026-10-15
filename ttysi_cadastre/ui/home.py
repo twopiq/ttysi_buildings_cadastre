@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFrame, QGridLayout, Q
                                QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from .. import __version__
-from ..workspace import (ORG_MARK, drop_cache, free_path, is_org, move_file,
+from ..workspace import (ORG_MARK, create_org, drop_cache, free_path, is_org, move_file,
                          orgs, safe_file_name, scan, summary)
 from ..equipment import EQUIPMENT_TYPES, get_type
 from . import theme
@@ -65,11 +65,7 @@ def org_of(settings: QSettings, path: str | None) -> str | None:
 
 def new_org(settings: QSettings, name: str) -> str:
     """Yangi tashkilot papkasi (nomi band bo'lsa raqam qo'shiladi)."""
-    folder = workspace(settings)
-    path = free_path(folder, safe_file_name(name) or "Tashkilot", "")
-    os.makedirs(path)
-    open(os.path.join(path, ORG_MARK), "w").close()
-    return path
+    return create_org(workspace(settings), name)
 
 
 def _repath_recent(settings: QSettings, old: str, new: str | None) -> None:

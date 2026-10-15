@@ -249,7 +249,9 @@ Arxivni oching va `TTYSI_Kadastr.exe` ni ishga tushiring.
 Telefon va kompyuter brauzeri uchun sayt versiyasining 1-bosqichi `web/` papkasida: binolar ro'yxati,
 etaj chizmasi (surish, barmoq bilan kattalashtirish), AT belgilarini qo'shish va tasdiqlash, Excel hisobot.
 Desktop dastur bilan bir xil binolar papkasi va yadro koddan foydalanadi. Foydalanuvchilar va rollar
-(ko'ruvchi / tahrirlovchi / administrator), o'zgarishlar jurnali. Windows'da ishga tushirish:
+(ko'ruvchi / tahrirlovchi / administrator), o'zgarishlar jurnali. Saytda yangi bino va etaj ham qo'shiladi:
+kadastr PDF yoki telefon kamerasi rasmi yuklanadi, xonalar va qo'lyozma belgilar avtomatik topiladi va
+belgilar telefonda qo'lyozma bo'lagiga qarab tasdiqlanadi. Windows'da ishga tushirish:
 `web\start_web.bat` ni ikki marta bosing. Batafsil va keyingi bosqichlar: [docs/WEB.md](docs/WEB.md).
 
 Dastur va sayt bitta binoni o'zgartirsa, dastur saytdagi AT belgilarini o'zi qo'shib oladi (har 5 soniyada,

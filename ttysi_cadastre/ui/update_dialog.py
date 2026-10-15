@@ -11,9 +11,10 @@ Oddiy ish tartibi:
 from __future__ import annotations
 
 import sys
+import threading
 import time
 
-from PySide6.QtCore import QObject, QProcess, QSettings, QThread, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QProcess, QSettings, QTimer, Signal, Slot
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
                                QLineEdit, QProgressBar, QPushButton, QRadioButton, QTextBrowser, QToolButton,
                                QVBoxLayout, QWidget)
@@ -62,59 +63,58 @@ def notes_html(text: str) -> str:
 
 # ======================================================================== fon oqimi
 
-class _Worker(QObject):
-    """Tarmoq ishlarini fonda bajaradi (oyna qotib qolmasligi uchun)."""
+class _Relay(QObject):
+    """Asosiy (GUI) oqimida yashaydi. Fon oqimi signal chiqaradi - Qt uni navbat orqali shu yerga yetkazadi."""
 
     finished = Signal(object, object)   # natija, xato
     progress = Signal(int, int)
-
-    def __init__(self, fn):
-        super().__init__()
-        self.fn = fn
-
-    def run(self):
-        try:
-            res = self.fn(lambda done, total: self.progress.emit(done, total))
-            self.finished.emit(res, None)
-        except Exception as e:  # tarmoq/fayl xatolari foydalanuvchiga ko'rsatiladi
-            self.finished.emit(None, e)
-
-
-class _Relay(QObject):
-    """Asosiy oqimda yashaydi: fon oqimidagi signallar navbat orqali shu yerga keladi."""
 
     def __init__(self, on_done, on_progress, parent=None):
         super().__init__(parent)
         self.on_done = on_done
         self.on_progress = on_progress
+        self.finished.connect(self._done)
+        self.progress.connect(self._progress)
 
     @Slot(object, object)
-    def done(self, res, err):
-        self.on_done(res, err)
+    def _done(self, res, err):
+        try:
+            self.on_done(res, err)
+        finally:
+            self.deleteLater()
 
     @Slot(int, int)
-    def progress(self, done, total):
+    def _progress(self, done, total):
         if self.on_progress:
             self.on_progress(done, total)
 
 
 def run_in_thread(owner, fn, on_done, on_progress=None):
-    """fn(progress) ni fon oqimida bajaradi; on_done/on_progress asosiy (GUI) oqimida chaqiriladi."""
-    thread = QThread(owner)
-    worker = _Worker(fn)
+    """fn(progress) ni fon oqimida bajaradi; on_done/on_progress asosiy (GUI) oqimida chaqiriladi.
+
+    Oddiy Python oqimi ishlatiladi (QThread + moveToThread ba'zan PySide'da osilib qolardi).
+    """
     relay = _Relay(on_done, on_progress, owner)
-    worker.moveToThread(thread)
-    thread._keep = (worker, relay)   # Python havolalari - ish tugaguncha o'chib ketmasin
-    thread.started.connect(worker.run)
-    worker.finished.connect(relay.done)
-    worker.progress.connect(relay.progress)
-    worker.finished.connect(thread.quit)
-    worker.finished.connect(worker.deleteLater)
-    thread.finished.connect(thread.deleteLater)
-    thread.finished.connect(relay.deleteLater)
+
+    def emit(sig, *args):
+        try:
+            sig.emit(*args)
+        except RuntimeError:                 # oyna allaqachon yopilgan
+            pass
+
+    def work():
+        try:
+            res = fn(lambda done, total: emit(relay.progress, done, total))
+            emit(relay.finished, res, None)
+        except Exception as e:  # tarmoq/fayl xatolari foydalanuvchiga ko'rsatiladi
+            emit(relay.finished, None, e)
+        finally:
+            if hasattr(owner, "threads") and thread in owner.threads:
+                owner.threads.remove(thread)
+
+    thread = threading.Thread(target=work, name="ttysi-update", daemon=True)
     if hasattr(owner, "threads"):
         owner.threads.append(thread)
-        thread.finished.connect(lambda: owner.threads.remove(thread) if thread in owner.threads else None)
     thread.start()
     return thread
 
@@ -139,7 +139,7 @@ class Updater(QObject):
         self.error = ""
         self.done_bytes = 0
         self.total_bytes = 0
-        self.threads: list[QThread] = []
+        self.threads: list[threading.Thread] = []
         self.timer = QTimer(self)
         self.timer.setInterval(PERIOD_MS)
         self.timer.timeout.connect(lambda: self.check(silent=True))
@@ -154,11 +154,7 @@ class Updater(QObject):
         """Oyna yopilayotganda fon oqimlari tugashini kutadi."""
         self.timer.stop()
         for t in list(self.threads):
-            try:
-                t.quit()
-                t.wait(timeout_ms)
-            except RuntimeError:   # Qt obyekti allaqachon o'chirilgan
-                pass
+            t.join(timeout_ms / 1000)
 
     def _set(self, state: str, error: str = ""):
         self.state = state

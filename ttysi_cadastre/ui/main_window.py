@@ -15,12 +15,13 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDia
                                QStackedWidget, QToolButton, QVBoxLayout, QWidget)
 
 from .. import __version__
-from ..detection import DetectParams, decode_image, detect, encode_jpg, limit_size, read_image
+from ..detection import DetectParams, decode_image, encode_jpg, limit_size, read_image
 from ..equipment import BY_KEY, EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
 from ..export import export_dxf, export_image, export_pdf, export_svg
 from ..geometry import bg_map, merge_rooms, split_room
+from ..floor_build import apply_detection
 from ..merge import merge_equipment, snapshot
-from ..model import Building, Door, Equipment, Floor, Room
+from ..model import Building, Equipment, Floor, Room
 from ..render import RenderOptions, equipment_counts, meter_px, wall_width
 from ..report import export_excel
 from ..updater import is_frozen
@@ -1698,33 +1699,7 @@ class MainWindow(QMainWindow):
 
     def apply_detection(self, floor: Floor, img, params: DetectParams, keep_eq: bool,
                         numbering: bool = True) -> str:
-        res = detect(img, params)
-        k = floor.width / max(1, img.shape[1])
-        if abs(k - 1) > 1e-9 or not floor.bg_identity():
-            # rasm piksellari -> chizma koordinatalari (fon surilgan/burilgan bo'lsa ham)
-            def mp(x, y):
-                return bg_map(floor, x * k, y * k)
-            for r in res.rooms:
-                r.points = [mp(x, y) for x, y in r.points]
-            res.marks = [mp(x, y) for x, y in res.marks]
-            for d in res.doors:
-                d.x, d.y = mp(d.x, d.y)
-                d.angle += floor.bg_rot
-                d.width *= k * floor.bg_scale
-        floor.rooms = [Room(points=r.points, kind=r.kind, name=str(i) if numbering else "", shape=r.shape)
-                       for i, r in enumerate(res.rooms, 1)]
-        # doira binolar kirishlaridagi eshiklar (mavjud eshik bilan ustma-ust tushmasa)
-        for d in res.doors:
-            if all(math.hypot(d.x - o.x, d.y - o.y) > d.width for o in floor.doors):
-                wide = d.width > meter_px(floor) * 1.6          # keng kirish - ikki tabaqali
-                floor.doors.append(Door(x=d.x, y=d.y, angle=d.angle, width=d.width, leaves=2 if wide else 1))
-        kept = [e for e in floor.equipment if e.code != "?"] if keep_eq else []
-        floor.equipment = kept + [Equipment(code="?", x=x, y=y) for x, y in res.marks]
-        domes = sum(1 for r in res.rooms if r.shape == "ellipse")
-        return (f"Topildi: {len(res.rooms)} ta xona/koridor"
-                + (f" (shundan {domes} ta gumbaz, {len(res.doors)} ta kirish)" if domes else "")
-                + f", {len(res.marks)} ta belgi nomzodi. "
-                "Chizmani tekshirib, tuzating.")
+        return apply_detection(floor, img, params, keep_eq, numbering)
 
     def replace_floor_image(self, path: str | None = None, dialog_hook=None) -> bool:
         """Joriy etajning kadastr rasmini (PDF yoki rasm) almashtirish.

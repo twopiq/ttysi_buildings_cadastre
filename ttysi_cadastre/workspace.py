@@ -132,3 +132,20 @@ def move_file(path: str, folder: str) -> str:
 def workspace_tree(folder: str) -> dict:
     """Butun ish joyi: {"buildings": [...tashkilotsiz], "orgs": [{"name","path","buildings"}]}."""
     return {"buildings": scan(folder), "orgs": orgs(folder)}
+
+
+def create_org(folder: str, name: str) -> str:
+    """Yangi tashkilot papkasi (nomi band bo'lsa raqam qo'shiladi)."""
+    path = free_path(folder, safe_file_name(name) or "Tashkilot", "")
+    os.makedirs(path)
+    open(os.path.join(path, ORG_MARK), "w").close()
+    return path
+
+
+def create_building(folder: str, name: str, address: str = "") -> str:
+    """Papkada (ish joyi yoki tashkilot) yangi bo'sh bino fayli. Natija - fayl yo'li."""
+    from .model import Building
+    os.makedirs(folder, exist_ok=True)
+    path = free_path(folder, safe_file_name(name) or "Bino")
+    Building(name=name.strip() or "Bino", address=address.strip()).save(path)
+    return os.path.abspath(path)

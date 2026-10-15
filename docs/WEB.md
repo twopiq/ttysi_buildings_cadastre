@@ -51,6 +51,17 @@ web/
 - Ma'lumotlar `<Binolar papkasi>/.ttysi-web/` da (users.json, journal.jsonl).
 - Qolgani: PostgreSQL va fayl ombori (ko'p serverli o'rnatish uchun), desktopda serverga ulanish.
 
+## 3-bosqich (tayyor): saytda yangi bino va etaj
+
+- **+ Tashkilot** (administrator), **+ Bino** (tahrirlovchi) — bosh sahifada.
+- **+ Etaj** — kadastr PDF, skaner yoki telefon rasmi (telefonda kamera bilan darhol suratga olish).
+  PDF bo'lsa sahifani tanlaysiz, ko'rinishi chiqadi; nisbat (1:300 ...) bo'yicha masshtab hisoblanadi.
+  Telefon rasmida qog'oz burchaklari topilsa, perspektiva o'zi to'g'rilanadi.
+- Xonalar, eshiklar va qo'lyozma AT belgilari desktop dasturdagi bilan bir xil kod bilan serverda (fon
+  vazifasi) aniqlanadi; jarayon holati sahifada ko'rinadi.
+- Tayyor bo'lgach **tasdiqlash** o'zi boshlanadi: har bir «?» belgi uchun kadastr rasmidagi qo'lyozma bo'lagi
+  ko'rsatiladi, turini bosasiz — keyingisiga o'tadi.
+
 ## Ishga tushirish
 
 **Windows (eng oson):** `web\start_web.bat` ni ikki marta bosing (Python 3.12 o'rnatilgan bo'lishi kerak).
@@ -78,10 +89,6 @@ kirishsiz ochiq — tarmoqqa ochishdan oldin administrator yarating.
 - Ma'lumot: PostgreSQL (bino, etaj, xona, jihoz jadvallari) + kadastr rasmlari uchun fayl ombori (S3/MinIO).
   `.ttysi` — import/eksport formati bo'lib qoladi.
 - Desktop dastur bilan sinxronlash: "Serverga yuklash / serverdan olish", versiya va to'qnashuvlarni hal qilish.
-
-**3. Rasmdan avtomatik chizish saytda**
-- Kadastr PDF/rasmini yuklash (telefon kamerasidan ham), perspektivani to'g'rilash, xonalarni va qo'lyozma
-  belgilarni topish — `detection.py` va `marks.py` serverda (fon vazifasi sifatida) ishlaydi.
 
 **4. To'liq tahrirlovchi**
 - Xonalar, devorlar, eshiklar, zinalarni chizish va tuzatish (desktopdagi asboblar), bekor qilish/qaytarish.
@@ -112,6 +119,10 @@ kirishsiz ochiq — tarmoqqa ochishdan oldin administrator yarating.
 | `GET /api/floor-image?id=&floor=` | etajning kadastr rasmi |
 | `POST /api/equipment?id=` | belgi qo'shish / o'zgartirish / o'chirish (`If-Match`) |
 | `GET /api/report.xlsx?id=` yoki `?org=` | Excel hisobot |
+| `POST /api/orgs`, `POST /api/buildings` | yangi tashkilot / bino |
+| `POST /api/upload`, `GET /api/upload/preview` | kadastr faylini yuklash (PDF sahifalar soni, ko'rinish) |
+| `POST /api/floors?id=`, `GET /api/jobs/{id}` | yuklangan fayldan etaj (fon vazifasi va uning holati) |
+| `GET /api/mark-crop` | belgi atrofidagi kadastr rasmi bo'lagi (tasdiqlash uchun) |
 | `GET /api/me`, `POST /api/login`, `POST /api/logout` | kim kirgan, kirish/chiqish |
 | `POST /api/setup` | birinchi administrator (faqat server kompyuteridan) |
 | `GET/POST/DELETE /api/users` | foydalanuvchilar (administrator) |

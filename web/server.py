@@ -13,11 +13,13 @@ from __future__ import annotations
 import hmac
 import io
 import os
+import secrets
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -25,7 +27,11 @@ from pydantic import BaseModel, Field
 from ttysi_cadastre import __version__
 from ttysi_cadastre.model import Building, Equipment
 from ttysi_cadastre.plan_json import building_json, equipment_types, room_kinds, valid_code
-from ttysi_cadastre.workspace import is_org, orgs, scan
+from ttysi_cadastre.detection import DetectParams, decode_image, encode_jpg, limit_size
+from ttysi_cadastre.geometry import bg_unmap
+from ttysi_cadastre.metrics import meter_px
+from ttysi_cadastre.floor_build import is_pdf, load_upload, new_floor, pdf_page_count, render_pdf
+from ttysi_cadastre.workspace import create_building, create_org, is_org, orgs, scan
 
 from .auth import ROLE_NAMES, ROLES, SESSION_DAYS, Store
 
@@ -34,6 +40,29 @@ STATIC = os.path.join(os.path.dirname(__file__), "static")
 
 def default_workspace() -> str:
     return os.environ.get("TTYSI_WORKSPACE") or os.path.join(os.path.expanduser("~"), "Documents", "TTYSI Binolar")
+
+
+MAX_UPLOAD = 60 * 2**20
+
+
+class NameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class BuildingIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    address: str | None = Field(default=None, max_length=300)
+    org: str | None = None
+
+
+class FloorIn(BaseModel):
+    token: str
+    page: int = Field(default=0, ge=0)
+    name: str | None = Field(default=None, max_length=80)
+    ratio: int = Field(default=0, ge=0, le=100000)
+    auto: bool = True
+    straighten: bool = True
+    sensitivity: float = Field(default=0.5, ge=0, le=1)
 
 
 class UserChange(BaseModel):
@@ -229,6 +258,33 @@ def create_app(workspace: str | None = None, pin: str | None = None) -> FastAPI:
         mime = "image/png" if data[:4] == b"\x89PNG" else "image/jpeg"
         return Response(data, media_type=mime, headers={"Cache-Control": "private, max-age=300"})
 
+    @app.get("/api/mark-crop")
+    def mark_crop(id: str = Query(...), floor: int = Query(..., ge=0), x: float = Query(...), y: float = Query(...)):
+        """Belgi atrofidagi asl kadastr rasmi bo'lagi (~5 m) - qo'lyozmaga qarab turini tanlash uchun."""
+        import cv2
+        import numpy as np
+        path = resolve(id)
+        b = Building.load(path, images=False)
+        if floor >= len(b.floors):
+            raise HTTPException(404, "Etaj topilmadi")
+        f = b.floors[floor]
+        data = Building.read_image(path, floor)
+        if not data:
+            raise HTTPException(404, "Rasm yo'q")
+        img = decode_image(data)
+        k = img.shape[1] / max(1, f.width)                       # etaj -> rasm piksellari
+        ix, iy = (v * k for v in bg_unmap(f, x, y))
+        half = max(meter_px(f) * 2.5, 60) * k / max(0.1, f.bg_scale)
+        W, H = 360, 240
+        hw, hh = half * W / H, half
+        src = np.float32([[ix - hw, iy - hh], [ix + hw, iy - hh], [ix - hw, iy + hh]])
+        dst = np.float32([[0, 0], [W, 0], [0, H]])
+        out = cv2.warpAffine(img, cv2.getAffineTransform(src, dst), (W, H), flags=cv2.INTER_AREA,
+                             borderMode=cv2.BORDER_CONSTANT, borderValue=(245, 245, 245))
+        cv2.circle(out, (W // 2, H // 2), int(H * 0.22), (40, 40, 211), 2, cv2.LINE_AA)
+        return Response(encode_jpg(out, 85), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=300"})
+
     @app.post("/api/equipment")
     def change(ch: EquipmentChange, request: Request, id: str = Query(...),
                if_match: str | None = Header(default=None)):
@@ -297,6 +353,119 @@ def create_app(workspace: str | None = None, pin: str | None = None) -> FastAPI:
         return Response(buf.getvalue(),
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name + ' - hisobot.xlsx')}"})
+
+    # ------------------------------------------------------------ yangi bino, tashkilot, etaj yuklash
+    uploads = os.path.join(store.dir, "uploads")
+    jobs: dict[str, dict] = {}
+    pool = ThreadPoolExecutor(max_workers=2)
+
+    @app.post("/api/orgs")
+    def org_create(body: NameIn, request: Request):
+        u = need(request, "admin")
+        path = create_org(root, body.name)
+        store.log(u["login"], "org_add", target=os.path.basename(path))
+        return {"id": rel(path), "name": os.path.basename(path)}
+
+    @app.post("/api/buildings")
+    def building_create(body: BuildingIn, request: Request):
+        u = need(request, "editor")
+        folder = root
+        if body.org:
+            folder = os.path.realpath(os.path.join(root, body.org))
+            if os.path.dirname(folder) != os.path.realpath(root) or not is_org(folder):
+                raise HTTPException(404, "Tashkilot topilmadi")
+        path = create_building(folder, body.name, body.address or "")
+        store.log(u["login"], "building_add", building=rel(path))
+        return {"id": rel(path)}
+
+    def upload_path(token: str) -> str:
+        if not token.isalnum() or len(token) != 32:
+            raise HTTPException(404, "Fayl topilmadi (qaytadan yuklang)")
+        p = os.path.join(uploads, token)
+        if not os.path.isfile(p):
+            raise HTTPException(404, "Fayl topilmadi (qaytadan yuklang)")
+        return p
+
+    @app.post("/api/upload")
+    async def upload(request: Request, file: UploadFile = File(...)):
+        """Kadastr fayli (PDF yoki rasm) vaqtincha saqlanadi; PDF bo'lsa sahifalar soni qaytadi."""
+        need(request, "editor")
+        data = await file.read(MAX_UPLOAD + 1)
+        if len(data) > MAX_UPLOAD:
+            raise HTTPException(413, f"Fayl juda katta ({MAX_UPLOAD // 2**20} MB gacha)")
+        pages = 1
+        try:
+            if is_pdf(data):
+                pages = pdf_page_count(data)
+            elif decode_image(data) is None:
+                raise ValueError
+        except Exception:
+            raise HTTPException(422, "Faylni o'qib bo'lmadi: PDF, JPG yoki PNG yuboring")
+        os.makedirs(uploads, exist_ok=True)
+        for old in os.listdir(uploads):                      # bir kundan eski vaqtinchalik fayllar
+            p = os.path.join(uploads, old)
+            if time.time() - os.path.getmtime(p) > 86400:
+                os.remove(p)
+        token = secrets.token_hex(16)
+        with open(os.path.join(uploads, token), "wb") as f:
+            f.write(data)
+        return {"token": token, "kind": "pdf" if is_pdf(data) else "image", "pages": pages}
+
+    @app.get("/api/upload/preview")
+    def upload_preview(request: Request, token: str, page: int = Query(0, ge=0)):
+        need(request, "editor")
+        with open(upload_path(token), "rb") as f:
+            data = f.read()
+        try:
+            img, _ = render_pdf(data, page, dpi=40) if is_pdf(data) else (decode_image(data), None)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        img = limit_size(img, 900)
+        return Response(encode_jpg(img, 80), media_type="image/jpeg")
+
+    @app.post("/api/floors")
+    def floor_create(body: FloorIn, request: Request, id: str = Query(...)):
+        """Yuklangan fayldan yangi etaj (fon vazifasi): xonalar, eshiklar va AT belgilari nomzodlari topiladi."""
+        u = need(request, "editor")
+        path = resolve(id)
+        src = upload_path(body.token)
+        job = secrets.token_hex(8)
+        jobs[job] = {"status": "queued", "message": "Navbatda…"}
+
+        def work():
+            st = jobs[job]
+            try:
+                st.update(status="running", message="Rasm tayyorlanmoqda…")
+                with open(src, "rb") as f:
+                    data = f.read()
+                img, paper = load_upload(data, body.page, straighten=body.straighten)
+                st["message"] = "Xonalar va AT belgilari aniqlanmoqda…" if body.auto else "Etaj yaratilmoqda…"
+                params = DetectParams(blue_sensitivity=body.sensitivity)
+                with guard:
+                    lock = locks.setdefault(path, threading.Lock())
+                with lock:
+                    b = Building.load(path)
+                    name = (body.name or "").strip() or f"{len(b.floors) + 1}-qavat"
+                    floor, msg = new_floor(img, name, paper, body.ratio, auto=body.auto, params=params)
+                    b.floors.append(floor)
+                    b.save(path)
+                store.log(u["login"], "floor_add", building=id, floor=floor.name,
+                          rooms=len(floor.rooms), marks=sum(1 for e in floor.equipment if e.code == "?"))
+                st.update(status="done", message=msg, floor=len(b.floors) - 1)
+                try:
+                    os.remove(src)
+                except OSError:
+                    pass
+            except Exception as e:                       # noqa: BLE001 - foydalanuvchiga ko'rsatiladi
+                st.update(status="error", message=f"Etaj yaratilmadi: {e}")
+        pool.submit(work)
+        return {"job": job}
+
+    @app.get("/api/jobs/{job}")
+    def job_status(job: str):
+        if job not in jobs:
+            raise HTTPException(404, "Vazifa topilmadi")
+        return jobs[job]
 
     @app.get("/")
     def index():
