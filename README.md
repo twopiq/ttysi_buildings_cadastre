@@ -65,6 +65,10 @@ Hujjatlar/TTYSI Binolar/          <- "Binolar papkasi" (bosh sahifada o'zgartiri
   tarqatish (binolar o'chirilmaydi, tashkilotsiz bo'lib qoladi). Bino kartasida o'ng tugma —
   **Tashkilotga ko'chirish** yoki **Tashkilotdan chiqarish**. Yangi bino oynasida ham tashkilotni
   tanlash mumkin. Muharrirda bino nomi oldida tashkilot nomi ko'rinadi.
+- **Tashkilotni to'liq eksport** — tashkilot bo'limidagi **To'liq eksport** (yoki **Fayl → Eksport →
+  Tashkilotni to'liq eksport qilish**). Bitta papkaga: Excel hisobot, barcha binolar bitta umumiy PDF'da,
+  har bir bino alohida PDF, xohlansa har etaj PNG va DXF, loyiha fayllari (`.ttysi`) zaxira nusxasi va
+  `Tarkib.txt`; xohlansa hammasi bitta ZIP arxivda (yuborish uchun). Jarayon va natija eksport oynasida.
 - Muharrirda bino nomi yonidagi **▾** — boshqa binoga tez o'tish.
 - Saqlash xavfsiz: fayl avval vaqtinchalik nusxaga yoziladi, keyin almashtiriladi (saqlash vaqtida
   dastur yopilib qolsa ham eski fayl buzilmaydi).
@@ -239,6 +243,13 @@ Loyiha bitta `.ttysi` faylda saqlanadi: bino, barcha etajlar va kadastr rasmlari
 
 **Tayyor dastur.** GitHub → Actions → "Windows build" → `TTYSI_Kadastr_Windows.zip` faylini yuklab oling.
 Arxivni oching va `TTYSI_Kadastr.exe` ni ishga tushiring.
+
+## Sayt versiyasi (tayyorgarlik)
+
+Telefon va kompyuter brauzeri uchun sayt versiyasining 1-bosqichi `web/` papkasida: binolar ro'yxati,
+etaj chizmasi (surish, barmoq bilan kattalashtirish), AT belgilarini qo'shish va tasdiqlash, Excel hisobot.
+Desktop dastur bilan bir xil binolar papkasi va yadro koddan foydalanadi. Ishga tushirish va keyingi
+bosqichlar rejasi: [docs/WEB.md](docs/WEB.md).
 
 ## Yangilash
 

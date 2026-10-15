@@ -123,6 +123,7 @@ class Floor:
     bg_scale: float = 1.0
     bg_rot: float = 0.0
     id: str = field(default_factory=new_id)
+    image_ref: str = field(default="", repr=False, compare=False)   # rasmsiz o'qilganda: fayl ichidagi rasm nomi
 
     def room_of(self, e: "Equipment") -> "Room | None":
         """Jihoz joylashgan xona (ustma-ust bo'lsa - eng kichigi)."""
@@ -268,5 +269,16 @@ class Building:
             b = cls(name=data.get("name", ""), address=data.get("address", ""))
             for d in data.get("floors", []):
                 img = z.read(d["image"]) if images and d.get("image") else None
-                b.floors.append(Floor.from_dict(d, img))
+                f = Floor.from_dict(d, img)
+                f.image_ref = d.get("image") or ""
+                b.floors.append(f)
         return b
+
+    @staticmethod
+    def read_image(path: str, index: int) -> bytes | None:
+        """Faqat bitta etajning rasmini o'qish (butun loyihani yuklamasdan)."""
+        with zipfile.ZipFile(path) as z:
+            floors = json.loads(z.read("project.json").decode("utf-8")).get("floors", [])
+            if 0 <= index < len(floors) and floors[index].get("image"):
+                return z.read(floors[index]["image"])
+        return None

@@ -8,7 +8,9 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF, QTransform
 
 from .equipment import EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
-from .geometry import door_cut, door_lines, nearest_wall, stair_lines
+from .geometry import door_cut, door_lines, stair_lines
+from .metrics import (door_wall_thickness, dome_ring, equipment_counts, label_px, meter_px,  # noqa: F401
+                      room_label, symbol_radius, wall_width)
 from .model import Building, Floor
 
 
@@ -19,26 +21,6 @@ class RenderOptions:
     legend: bool = True
     title: bool = True
     planned: bool = True       # "kerak" (rejadagi) jihozlarni ham chizish
-
-
-def meter_px(floor: Floor) -> float:
-    """Chizmadagi taxminiy "1 metr" piksellarda (masshtab bo'lmasa - rasm o'lchamidan)."""
-    if floor.scale_m_per_px:
-        return 1.0 / floor.scale_m_per_px
-    return (floor.width * floor.height) ** 0.5 / 40
-
-
-def wall_width(floor: Floor) -> float:
-    """Xona devorlarining qalinligi piksellarda (etaj sozlamasi, standart 0.30 m)."""
-    return meter_px(floor) * (floor.wall_m or 0.30)
-
-
-def label_px(floor: Floor) -> int:
-    return max(1, int(meter_px(floor) * 0.6))
-
-
-def symbol_radius(floor: Floor) -> float:
-    return meter_px(floor) * 0.55 * (getattr(floor, "symbol_scale", 1.0) or 1.0)
 
 
 def draw_equipment_symbol(p: QPainter, code: str, center: QPointF, r: float, planned: bool = False) -> None:
@@ -94,29 +76,12 @@ def draw_walls(p: QPainter, floor: Floor) -> None:
         draw_wall(p, wall)
 
 
-def door_wall_thickness(floor: Floor, door) -> float:
-    """Eshik turgan devor qalinligi: mustaqil devorda - o'sha devorniki, aks holda xona devori."""
-    ww = wall_width(floor)
-    snap = nearest_wall(floor.rooms, door.x, door.y, floor.walls)
-    if snap and snap[4] is not None and snap[3] < 1.0:
-        return max(ww, snap[4].thickness)
-    return ww
-
-
 def draw_stairs(p: QPainter, room, floor: Floor) -> None:
     """Zina: pog'onalar (0.3 m) va yo'nalish strelkasi."""
     p.setPen(QPen(QColor("#616161"), max(1.0, wall_width(floor) * 0.18)))
     p.setBrush(Qt.NoBrush)
     for ln in stair_lines(room.points, meter_px(floor) * 0.3, room.direction):
         p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in ln]))
-
-
-def dome_ring(room, floor: Floor) -> list[tuple[float, float]]:
-    """Gumbaz belgisi: xona ichidagi punktir halqa (devordan ~0.6 m ichkarida)."""
-    cx, cy = room.centroid()
-    rad = max(1.0, sum(((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 for x, y in room.points) / len(room.points))
-    k = max(0.5, 1 - meter_px(floor) * 0.6 / rad)
-    return [(cx + (x - cx) * k, cy + (y - cy) * k) for x, y in room.points]
 
 
 def draw_dome(p: QPainter, room, floor: Floor) -> None:
@@ -182,26 +147,6 @@ def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImag
         if e.planned and not opts.planned:
             continue
         draw_equipment_symbol(p, e.code, QPointF(e.x, e.y), r, e.planned)
-
-
-def room_label(room, floor: Floor) -> str:
-    parts = []
-    if room.name:
-        parts.append(room.name)
-    elif room.kind != "room":
-        parts.append(ROOM_KINDS[room.kind][0])
-    if floor.scale_m_per_px:
-        parts.append(f"{room.area() * floor.scale_m_per_px ** 2:.1f} m²")
-    return "\n".join(parts)
-
-
-def equipment_counts(floor: Floor, planned: bool = False) -> dict[str, int]:
-    """Jihozlar soni turlar bo'yicha (planned=True - faqat rejadagilar, aks holda mavjudlar)."""
-    counts: dict[str, int] = {}
-    for e in floor.equipment:
-        if e.planned == planned:
-            counts[e.code] = counts.get(e.code, 0) + 1
-    return counts
 
 
 def draw_page(p: QPainter, page: QRectF, building: Building, floor: Floor,
