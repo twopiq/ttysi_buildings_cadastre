@@ -64,8 +64,11 @@ def _widths(ws, widths: list[int]):
     ws.freeze_panes = "A2"
 
 
-def export_excel(path: str, buildings: list[Building]) -> None:
+def export_excel(path: str, buildings: list[Building], title: str | None = None) -> None:
+    """title - tashkilot nomi: umumiy jami shu nom bilan yoziladi."""
     wb = Workbook()
+    if title:
+        wb.properties.title = f"{title} - AT jihozlari hisoboti"
 
     # --- 1. Umumiy: bino -> etaj -> jihozlar soni
     ws = wb.active
@@ -83,8 +86,8 @@ def export_excel(path: str, buildings: list[Building]) -> None:
             _row(ws, [b.name, "Jami"] + sub + [sum(len(f.rooms) for f in b.floors), None,
                                                sum(e.planned for f in b.floors for e in f.equipment)], total=True)
         grand = [a + x for a, x in zip(grand, sub)]
-    if len(buildings) > 1:
-        _row(ws, ["BARCHA BINOLAR", ""] + grand + [None, None,
+    if len(buildings) > 1 or title:
+        _row(ws, [f"{title.upper()} - JAMI" if title else "BARCHA BINOLAR", ""] + grand + [None, None,
                   sum(e.planned for b in buildings for f in b.floors for e in f.equipment)], total=True)
     _widths(ws, [28, 14] + [9] * (len(CODES) - 1) + [15, 12, 12, 14])
 

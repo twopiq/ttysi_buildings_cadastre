@@ -1,0 +1,9 @@
+{
+  "name": "TTYSI Binolar kadastri",
+  "short_name": "TTYSI kadastr",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F6F9",
+  "theme_color": "#1F5FAD",
+  "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+}

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F5FAD">
+<title>TTYSI Binolar kadastri</title>
+<link rel="manifest" href="/static/manifest.json">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <button class="logo" id="home" aria-label="Bosh sahifa">AT</button>
+  <div class="crumbs" id="crumbs">TTYSI Binolar kadastri</div>
+  <span class="ver" id="ver"></span>
+</header>
+
+<main id="view-home" class="page">
+  <div class="home-head">
+    <h1>Binolar</h1>
+    <input id="search" type="search" placeholder="Bino yoki tashkilot qidirish" autocomplete="off">
+  </div>
+  <div id="tree"></div>
+</main>
+
+<main id="view-building" class="page" hidden>
+  <nav class="floors" id="floors" aria-label="Etajlar"></nav>
+  <div class="work">
+    <section class="plan-wrap" id="plan-wrap">
+      <svg id="plan" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Etaj chizmasi"></svg>
+      <div class="plan-tools">
+        <button id="fit" title="Butun chizma">⤢</button>
+        <button id="zin" title="Kattalashtirish">+</button>
+        <button id="zout" title="Kichiklashtirish">−</button>
+        <label class="bgtoggle"><input type="checkbox" id="bg"> Fon</label>
+      </div>
+      <div class="hint" id="hint"></div>
+    </section>
+    <aside class="side" id="side">
+      <div class="palette" id="palette"></div>
+      <label class="plan-mode"><input type="checkbox" id="planned"> Kerak (reja)</label>
+      <button class="next" id="next" hidden></button>
+      <div class="stats" id="stats"></div>
+      <a class="report" id="report" download>Excel hisobot</a>
+    </aside>
+  </div>
+</main>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-card">
+    <div class="sheet-head"><b id="sheet-title"></b><button id="sheet-close" aria-label="Yopish">✕</button></div>
+    <div class="sheet-room" id="sheet-room"></div>
+    <div class="sheet-types" id="sheet-types"></div>
+    <div class="sheet-row">
+      <label><input type="radio" name="st" value="existing"> Mavjud</label>
+      <label><input type="radio" name="st" value="planned"> Kerak (reja)</label>
+    </div>
+    <input id="sheet-note" placeholder="Izoh (ixtiyoriy)" maxlength="500">
+    <div class="sheet-row end">
+      <button class="danger" id="sheet-del">O'chirish</button>
+      <button class="primary" id="sheet-save">Saqlash</button>
+    </div>
+  </div>
+</div>
+
+<div class="login" id="login" hidden>
+  <form class="sheet-card" id="login-form">
+    <b>Kirish kodi</b>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Kod">
+    <button class="primary">Kirish</button>
+    <div class="err" id="login-err"></div>
+  </form>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

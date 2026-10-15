@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF, QTransform
 
 from .equipment import EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
+from .geometry import door_cut, door_lines, stair_lines
+from .metrics import (door_wall_thickness, dome_ring, equipment_counts, label_px, meter_px,  # noqa: F401
+                      room_label, symbol_radius, wall_width)
 from .model import Building, Floor
 
 
@@ -17,25 +20,7 @@ class RenderOptions:
     room_names: bool = True
     legend: bool = True
     title: bool = True
-
-
-def meter_px(floor: Floor) -> float:
-    """Chizmadagi taxminiy "1 metr" piksellarda (masshtab bo'lmasa - rasm o'lchamidan)."""
-    if floor.scale_m_per_px:
-        return 1.0 / floor.scale_m_per_px
-    return (floor.width * floor.height) ** 0.5 / 40
-
-
-def wall_width(floor: Floor) -> float:
-    return meter_px(floor) * 0.3
-
-
-def label_px(floor: Floor) -> int:
-    return max(1, int(meter_px(floor) * 0.6))
-
-
-def symbol_radius(floor: Floor) -> float:
-    return meter_px(floor) * 0.55
+    planned: bool = True       # "kerak" (rejadagi) jihozlarni ham chizish
 
 
 def draw_equipment_symbol(p: QPainter, code: str, center: QPointF, r: float, planned: bool = False) -> None:
@@ -64,12 +49,68 @@ def draw_equipment_symbol(p: QPainter, code: str, center: QPointF, r: float, pla
     p.drawText(QRectF(center.x() - r, center.y() - r, 2 * r, 2 * r), Qt.AlignCenter, t.label)
 
 
+def draw_door(p: QPainter, door, wall: float, cut_color: QColor | None = None) -> None:
+    """Eshik: devorda oq o'rin, kesak belgilari, ochiq tabaqa va ochilish yoyi."""
+    p.setPen(Qt.NoPen)
+    p.setBrush(cut_color or QColor("white"))
+    p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in door_cut(door, wall)]))
+    pen = QPen(QColor("#212121"), max(1.0, wall * 0.22))
+    pen.setCapStyle(Qt.FlatCap)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    for ln in door_lines(door, wall):
+        p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in ln]))
+
+
+def draw_wall(p: QPainter, wall, color: QColor | None = None) -> None:
+    pen = QPen(color or QColor("#212121"), wall.thickness)
+    pen.setJoinStyle(Qt.MiterJoin)
+    pen.setCapStyle(Qt.SquareCap)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in wall.points]))
+
+
+def draw_walls(p: QPainter, floor: Floor) -> None:
+    for wall in floor.walls:
+        draw_wall(p, wall)
+
+
+def draw_stairs(p: QPainter, room, floor: Floor) -> None:
+    """Zina: pog'onalar (0.3 m) va yo'nalish strelkasi."""
+    p.setPen(QPen(QColor("#616161"), max(1.0, wall_width(floor) * 0.18)))
+    p.setBrush(Qt.NoBrush)
+    for ln in stair_lines(room.points, meter_px(floor) * 0.3, room.direction):
+        p.drawPolyline(QPolygonF([QPointF(x, y) for x, y in ln]))
+
+
+def draw_dome(p: QPainter, room, floor: Floor) -> None:
+    pen = QPen(QColor("#5c6b7a"), max(1.0, wall_width(floor) * 0.18), Qt.DashLine)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in dome_ring(room, floor)]))
+
+
+def bg_qtransform(floor: Floor, image_width: int) -> QTransform:
+    """Fon rasmi piksellari -> chizma koordinatalari (etaj kengligiga keltirish + moslash)."""
+    k = floor.width / max(1, image_width)
+    cx, cy = floor.width / 2, floor.height / 2
+    s = QTransform()
+    s.translate(cx + floor.bg_dx, cy + floor.bg_dy)
+    s.rotate(floor.bg_rot)
+    s.scale(floor.bg_scale, floor.bg_scale)
+    s.translate(-cx, -cy)
+    return QTransform.fromScale(k, k) * s
+
+
 def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImage | None = None) -> None:
     """Etajni uning o'z koordinatalarida (piksellarda) chizadi."""
     if opts.background and background is not None and not background.isNull():
+        p.save()
         p.setOpacity(0.35)
-        p.drawImage(QRectF(0, 0, floor.width, floor.height), background)
-        p.setOpacity(1.0)
+        p.setTransform(bg_qtransform(floor, background.width()), True)
+        p.drawImage(QPointF(0, 0), background)
+        p.restore()
     ww = wall_width(floor)
     # avval to'ldirish, keyin devorlar - qo'shni xonalar devorlari ustma-ust tushadi
     for room in floor.rooms:
@@ -77,12 +118,20 @@ def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImag
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(ROOM_KINDS.get(room.kind, ROOM_KINDS["room"])[1]))
         p.drawPolygon(poly)
+    for room in floor.rooms:
+        if room.kind == "stairs":
+            draw_stairs(p, room, floor)
+        elif room.kind == "dome":
+            draw_dome(p, room, floor)
     pen = QPen(QColor("#212121"), ww)
     pen.setJoinStyle(Qt.MiterJoin)
     p.setPen(pen)
     p.setBrush(Qt.NoBrush)
     for room in floor.rooms:
         p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in room.points]))
+    draw_walls(p, floor)
+    for door in floor.doors:
+        draw_door(p, door, door_wall_thickness(floor, door))
     if opts.room_names:
         f = QFont("Arial")
         f.setPixelSize(label_px(floor))
@@ -95,27 +144,9 @@ def draw_floor(p: QPainter, floor: Floor, opts: RenderOptions, background: QImag
                 p.drawText(QRectF(cx - 300, cy - 100, 600, 200), Qt.AlignCenter, text)
     r = symbol_radius(floor)
     for e in floor.equipment:
+        if e.planned and not opts.planned:
+            continue
         draw_equipment_symbol(p, e.code, QPointF(e.x, e.y), r, e.planned)
-
-
-def room_label(room, floor: Floor) -> str:
-    parts = []
-    if room.name:
-        parts.append(room.name)
-    elif room.kind != "room":
-        parts.append(ROOM_KINDS[room.kind][0])
-    if floor.scale_m_per_px:
-        parts.append(f"{room.area() * floor.scale_m_per_px ** 2:.1f} m²")
-    return "\n".join(parts)
-
-
-def equipment_counts(floor: Floor, planned: bool = False) -> dict[str, int]:
-    """Jihozlar soni turlar bo'yicha (planned=True - faqat rejadagilar, aks holda mavjudlar)."""
-    counts: dict[str, int] = {}
-    for e in floor.equipment:
-        if e.planned == planned:
-            counts[e.code] = counts.get(e.code, 0) + 1
-    return counts
 
 
 def draw_page(p: QPainter, page: QRectF, building: Building, floor: Floor,
@@ -148,11 +179,13 @@ def draw_page(p: QPainter, page: QRectF, building: Building, floor: Floor,
         if is_wide(floor):
             # uzun etaj - shartli belgilar pastda, gorizontal
             lh = unit * 7
-            draw_legend(p, QRectF(area.left(), area.bottom() - lh, area.width(), lh), floor, unit, columns=6)
+            draw_legend(p, QRectF(area.left(), area.bottom() - lh, area.width(), lh), floor, unit, columns=6,
+                        planned=opts.planned)
             area.setBottom(area.bottom() - lh - unit)
         else:
             lw = unit * 19
-            draw_legend(p, QRectF(area.right() - lw, area.top(), lw, area.height()), floor, unit)
+            draw_legend(p, QRectF(area.right() - lw, area.top(), lw, area.height()), floor, unit,
+                        planned=opts.planned)
             area.setRight(area.right() - lw - unit)
 
     # chizmani maydonga sig'dirish
@@ -169,9 +202,10 @@ def is_wide(floor: Floor) -> bool:
     return floor.width / max(1, floor.height) > 2.2
 
 
-def draw_legend(p: QPainter, rect: QRectF, floor: Floor, unit: float, columns: int = 1) -> None:
+def draw_legend(p: QPainter, rect: QRectF, floor: Floor, unit: float, columns: int = 1,
+                planned: bool = True) -> None:
     counts = equipment_counts(floor)
-    need = equipment_counts(floor, planned=True)
+    need = equipment_counts(floor, planned=True) if planned else {}
     f = QFont("Arial")
     f.setBold(True)
     f.setPixelSize(int(unit * 1.1))

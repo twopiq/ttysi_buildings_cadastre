@@ -242,3 +242,206 @@ def test_planned_equipment(qapp, tmp_path):
     assert not next(e for e in f.equipment if e.code == "W").planned
     w.dirty = False
     w.close()
+
+
+def test_doors_and_stairs(qapp, tmp_path):
+    """Eshik devorga yopishadi; eshik va zina saqlanadi, chiziladi va DXF'ga chiqadi."""
+    from PySide6.QtCore import QPointF
+    from ttysi_cadastre.export import export_dxf, export_image
+    from ttysi_cadastre.geometry import door_lines, stair_lines
+    from ttysi_cadastre.model import Door
+    from ttysi_cadastre.render import RenderOptions
+    from ttysi_cadastre.ui.main_window import MainWindow
+    b, f = _sample()
+    f.rooms.append(Room(points=[(100, 400), (200, 400), (200, 600), (100, 600)], kind="stairs"))
+    w = MainWindow()
+    w.building = b
+    w.refresh_all()
+    # vertikal devor (x=500) yoniga bosish -> eshik devorga yopishadi va vertikal bo'ladi
+    item = w.scene.add_door(QPointF(507, 250))
+    d = item.door
+    assert abs(d.x - 500) < 1e-6 and abs(abs(d.angle) - 90) < 1e-6
+    assert abs(d.width - 0.9 / f.scale_m_per_px) < 1e-6
+    assert len(f.doors) == 1
+    w.undo()
+    assert not f.doors
+    w.redo()
+    assert len(f.doors) == 1
+    f.doors[0].leaves = 2
+    # bir tabaqali: 2 kesak + tabaqa + yoy; ikki tabaqali: 2 + 2*2
+    assert len(door_lines(Door(x=0, y=0, width=40), 5)) == 4
+    assert len(door_lines(f.doors[0], 5)) == 6
+    steps = stair_lines(f.rooms[-1].points, 0.3 / f.scale_m_per_px)
+    assert len(steps) > 10
+
+    p = str(tmp_path / "e.ttysi")
+    b.save(p)
+    f2 = Building.load(p).floors[0]
+    assert f2.doors[0].leaves == 2 and f2.rooms[-1].kind == "stairs"
+
+    export_image(str(tmp_path / "e.png"), b, f, RenderOptions(), 1000)
+    dx = str(tmp_path / "e.dxf")
+    export_dxf(dx, b, f)
+    msp = ezdxf.readfile(dx).modelspace()
+    assert len(msp.query('LWPOLYLINE[layer=="ESHIKLAR"]')) == 6
+    assert len(msp.query('LWPOLYLINE[layer=="ZINALAR"]')) > 10
+    w.dirty = False
+    w.close()
+
+
+def test_rotate_in_place(qapp, monkeypatch):
+    """Xona, zina va eshik o'z markazi atrofida aylanadi; bekor qilish ishlaydi."""
+    from PySide6.QtCore import QPointF
+    from ttysi_cadastre.ui import canvas
+    from ttysi_cadastre.ui.main_window import MainWindow
+    b, f = _sample()
+    room = f.rooms[0]                                   # 400x300, markazi (300, 250)
+    c0, a0 = room.centroid(), room.area()
+    w = MainWindow()
+    w.building = b
+    w.refresh_all()
+    item = next(i for i in w.scene.room_items() if i.room is room)
+    item.setSelected(True)
+    w.rotate_selected(90.0)
+    xs, ys = [p[0] for p in room.points], [p[1] for p in room.points]
+    assert (max(xs) - min(xs), max(ys) - min(ys)) == (300, 400)      # eni va bo'yi almashdi
+    assert room.centroid() == pytest.approx(c0) and room.area() == pytest.approx(a0)
+    w.undo()
+    room = f.rooms[0]
+    assert sorted(room.points) == sorted([(100, 100), (500, 100), (500, 400), (100, 400)])
+
+    # eshik: 180° - ochilish tomoni teskari, joyi o'zgarmaydi
+    d = w.scene.add_door(QPointF(300, 102)).door
+    x, y, a = d.x, d.y, d.angle
+    w.scene.clearSelection()
+    door_item = next(i for i in w.scene.items() if isinstance(i, canvas.DoorItem))
+    door_item.setSelected(True)
+    w.rotate_selected(180.0)
+    assert (d.x, d.y) == (x, y) and d.angle == pytest.approx((a + 180) % 360)
+
+    # istalgan burchak (dialog o'rniga 30°)
+    monkeypatch.setattr(canvas, "ask_angle", lambda parent=None: 30.0)
+    w.rotate_selected("custom")
+    assert d.angle == pytest.approx((a + 210) % 360)
+
+    # hech narsa tanlanmagan - o'zgarish yo'q
+    w.scene.clearSelection()
+    assert not w.scene.rotate_selected(90.0)
+    w.dirty = False
+    w.close()
+
+
+def test_walls(qapp, tmp_path):
+    """Mustaqil devor: asbob bilan chizish, eshik yopishishi, aylantirish, saqlash, DXF."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtTest import QTest
+    from ttysi_cadastre.export import export_dxf, export_image
+    from ttysi_cadastre.render import RenderOptions, door_wall_thickness
+    from ttysi_cadastre.ui import canvas
+    from ttysi_cadastre.ui.main_window import MainWindow
+    b, f = _sample()                                     # 1 m = 50 px
+    w = MainWindow()
+    w.resize(1200, 800)
+    w.show()
+    w.building = b
+    w.refresh_all()
+    qapp.processEvents()
+    w.view.zoom_fit()
+    qapp.processEvents()
+
+    # asbob bilan: 3 nuqta + Enter -> siniq devor (orto rejimda)
+    w.select_tool(canvas.WALL)
+    vp = w.view.viewport()
+    for x, y in [(150, 500), (450, 503), (450, 650)]:
+        QTest.mouseClick(vp, Qt.LeftButton, Qt.NoModifier, w.view.mapFromScene(QPointF(x, y)))
+    QTest.keyClick(w.view, Qt.Key_Return)
+    assert len(f.walls) == 1
+    wall = f.walls[0]
+    assert len(wall.points) == 3
+    (x0, y0), (x1, y1), (x2, y2) = wall.points
+    assert abs(y1 - y0) < 1e-6 and abs(x2 - x1) < 1e-6          # orto: gorizontal, keyin vertikal
+    assert wall.thickness == pytest.approx(0.25 / f.scale_m_per_px)
+
+    # eshik mustaqil devorga yopishadi va uning qalinligini oladi
+    wall.thickness = 0.5 / f.scale_m_per_px
+    door = w.scene.add_door(QPointF(300, y0 + 6)).door
+    assert abs(door.y - y0) < 1e-6 and abs(door.angle) < 1e-6
+    assert door_wall_thickness(f, door) == pytest.approx(wall.thickness)
+
+    # aylantirish va bekor qilish
+    w.select_tool(canvas.SELECT)
+    w.scene.clearSelection()
+    item = next(i for i in w.scene.items() if isinstance(i, canvas.WallItem))
+    item.setSelected(True)
+    before = list(f.walls[0].points)
+    w.rotate_selected(90.0)
+    assert f.walls[0].points != before
+    w.undo()
+    assert f.walls[0].points == pytest.approx(before)
+
+    # saqlash, chizish, DXF
+    p = str(tmp_path / "d.ttysi")
+    b.save(p)
+    assert len(Building.load(p).floors[0].walls[0].points) == 3
+    export_image(str(tmp_path / "d.png"), b, f, RenderOptions(), 1000)
+    dx = str(tmp_path / "d.dxf")
+    export_dxf(dx, b, f)
+    walls = ezdxf.readfile(dx).modelspace().query('LWPOLYLINE[layer=="DEVORLAR"]')
+    assert len(walls) == 1 and walls[0].dxf.const_width == pytest.approx(0.5)
+    w.dirty = False
+    w.close()
+
+
+def test_wall_thickness_controls(qapp, tmp_path):
+    """Devor qalinligi: panel, Alt+↑/↓, bir nechta devor, xona devorlari, yangi devorlar, saqlash."""
+    from PySide6.QtCore import QPointF
+    from ttysi_cadastre.render import wall_width
+    from ttysi_cadastre.ui.main_window import MainWindow
+    b, f = _sample()                                   # 1 m = 50 px
+    w = MainWindow()
+    w.building = b
+    w.refresh_all()
+    a = w.scene.add_wall([QPointF(150, 500), QPointF(450, 500)])
+    c = w.scene.add_wall([QPointF(150, 600), QPointF(450, 600)], thickness_m=0.12)
+    assert c.wall.thickness == pytest.approx(0.12 * 50)
+
+    # bitta devor: panel sahifasi, uzunlik, qalinlik
+    w.scene.clearSelection()
+    a.setSelected(True)
+    assert w.props.currentIndex() == 4
+    assert w.p_wall_len.text().startswith("6.00 m")
+    w.p_wall_thick.setValue(0.40)
+    assert a.wall.thickness == pytest.approx(20.0)
+    w.change_wall_thickness(+0.05)
+    assert a.wall.thickness == pytest.approx(0.45 * 50)
+    w.undo()
+    assert f.walls[0].thickness == pytest.approx(20.0)
+
+    # ikkita devor birdan
+    w.scene.clearSelection()
+    for it in w.scene.items():
+        if type(it).__name__ == "WallItem":
+            it.setSelected(True)
+    w.p_wall_thick.setValue(0.64)
+    assert all(x.thickness == pytest.approx(32.0) for x in f.walls)
+
+    # xona devorlari (etaj sozlamasi) va bekor qilish
+    w.scene.clearSelection()
+    assert w.props.currentIndex() == 0
+    w.p_room_wall.setValue(0.50)
+    assert f.wall_m == pytest.approx(0.50) and wall_width(f) == pytest.approx(25.0)
+    w.undo()
+    assert f.wall_m == pytest.approx(0.30)
+
+    # yangi devorlar standarti
+    w.p_new_wall.setValue(0.38)
+    d = w.scene.add_wall([QPointF(100, 700), QPointF(200, 700)])
+    assert d.wall.thickness == pytest.approx(0.38 * 50)
+
+    p = str(tmp_path / "t.ttysi")
+    f.wall_m = 0.42
+    b.save(p)
+    assert Building.load(p).floors[0].wall_m == pytest.approx(0.42)
+    w.p_new_wall.setValue(0.25)        # sozlamani asl holiga qaytarish
+    w.dirty = False
+    w.close()

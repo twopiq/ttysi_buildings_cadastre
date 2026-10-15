@@ -9,8 +9,10 @@ from PySide6.QtGui import QImage, QPageLayout, QPageSize, QPainter, QPdfWriter
 from PySide6.QtSvg import QSvgGenerator
 
 from .equipment import EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
+from .geometry import door_lines, stair_lines
 from .model import Building, Floor
-from .render import RenderOptions, draw_page, is_wide, label_px, room_label, symbol_radius
+from .render import (RenderOptions, dome_ring, draw_page, is_wide, label_px, meter_px, room_label,
+                     symbol_radius, wall_width)
 
 
 def _page_size(floor: Floor, long_side: int, legend: bool) -> tuple[int, int]:
@@ -62,14 +64,26 @@ def export_svg(path: str, building: Building, floor: Floor, opts: RenderOptions)
 
 
 def export_pdf(path: str, building: Building, floors: list[Floor], opts: RenderOptions,
-               page: str = "A3") -> None:
-    """PDF - har bir etaj alohida sahifada (bitta yoki bir nechta etaj)."""
+               page: str = "A3", progress=None) -> None:
+    """PDF - har bir etaj alohida sahifada (bitta yoki bir nechta etaj).
+
+    progress(i, floor) - har bir sahifa oldidan chaqiriladi (jarayon oynasi uchun).
+    """
+    export_pdf_pages(path, [(building, f) for f in floors], opts, page,
+                     None if progress is None else (lambda i, b, f: progress(i, f)), title=building.name)
+
+
+def export_pdf_pages(path: str, pages: list[tuple[Building, Floor]], opts: RenderOptions, page: str = "A3",
+                     progress=None, title: str = "") -> None:
+    """Bir nechta binoning etajlari bitta PDF'da (tashkilot eksporti). progress(i, building, floor)."""
     writer = QPdfWriter(path)
     writer.setResolution(200)
     size = QPageSize(QPageSize.A3 if page == "A3" else QPageSize.A4)
-    writer.setTitle(building.name)
+    writer.setTitle(title or (pages[0][0].name if pages else ""))
     p = None
-    for i, floor in enumerate(floors):
+    for i, (building, floor) in enumerate(pages):
+        if progress is not None:
+            progress(i, building, floor)
         orient = QPageLayout.Landscape if floor.width >= floor.height else QPageLayout.Portrait
         writer.setPageLayout(QPageLayout(size, orient, QMarginsF(0, 0, 0, 0)))
         if p is None:
@@ -88,7 +102,7 @@ def export_pdf(path: str, building: Building, floors: list[Floor], opts: RenderO
 _ACI = {"SER": 1, "KX": 6, "K": 3, "W": 5, "S": 30, "T": 34, "?": 8}
 
 
-def export_dxf(path: str, building: Building, floor: Floor) -> None:
+def export_dxf(path: str, building: Building, floor: Floor, planned: bool = True) -> None:
     """AutoCAD DXF. Masshtab berilgan bo'lsa - metrlarda, aks holda piksellarda.
 
     Qatlamlar: XONA_<tur>, XONA_NOMLARI, AT_<kod>. Y o'qi CAD uchun teskari aylantiriladi.
@@ -124,6 +138,26 @@ def export_dxf(path: str, building: Building, floor: Floor) -> None:
             msp.add_text(label, height=text_h, dxfattribs={"layer": "XONA_NOMLARI"}) \
                .set_placement(pt(cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
 
+    # Eshiklar va zina pog'onalari
+    doc.layers.add("ESHIKLAR", color=30)
+    doc.layers.add("ZINALAR", color=8)
+    doc.layers.add("GUMBAZ", color=8, linetype="DASHED")
+    ww = wall_width(floor)
+    doc.layers.add("DEVORLAR", color=7)
+    for wall in floor.walls:
+        msp.add_lwpolyline([pt(x, y) for x, y in wall.points],
+                           dxfattribs={"layer": "DEVORLAR", "const_width": wall.thickness * k})
+    for door in floor.doors:
+        for ln in door_lines(door, ww):
+            msp.add_lwpolyline([pt(x, y) for x, y in ln], dxfattribs={"layer": "ESHIKLAR"})
+    for room in floor.rooms:
+        if room.kind == "stairs":
+            for ln in stair_lines(room.points, meter_px(floor) * 0.3, room.direction):
+                msp.add_lwpolyline([pt(x, y) for x, y in ln], dxfattribs={"layer": "ZINALAR"})
+        elif room.kind == "dome":
+            msp.add_lwpolyline([pt(x, y) for x, y in dome_ring(room, floor)], close=True,
+                               dxfattribs={"layer": "GUMBAZ"})
+
     # AT jihozlari - bloklar sifatida (CAD'da sanash va almashtirish oson)
     r = symbol_radius(floor) * k
     for t in EQUIPMENT_TYPES + [UNKNOWN]:
@@ -138,6 +172,8 @@ def export_dxf(path: str, building: Building, floor: Floor) -> None:
         blk.add_text(t.label, height=r * 0.8, dxfattribs={"color": 0}).set_placement(
             (0, 0), align=TextEntityAlignment.MIDDLE_CENTER)
     for e in floor.equipment:
+        if e.planned and not planned:
+            continue
         t = get_type(e.code)
         layer = f"AT_{t.code if t.code != '?' else 'TASDIQLANMAGAN'}"
         if e.planned and t.code != "?":

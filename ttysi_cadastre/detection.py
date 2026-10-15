@@ -6,6 +6,7 @@ Bosqichlar:
   3. Ko'k ruchka izlarini rang bo'yicha topish -> AT belgisi nomzodlari.
   4. Ko'k izlarni olib tashlab, qora chiziqlardan devorlarni ajratish.
   5. Devorlar orasidagi yopiq bo'shliqlar -> xonalar va koridorlar (ko'pburchak).
+  6. Doira (gumbazli) binolar: aylana devor alohida topiladi, kirish bo'shliqlariga eshik qo'yiladi.
 
 Natija taxminiy: foydalanuvchi uni muharrirda tuzatadi.
 """
@@ -36,8 +37,8 @@ class DetectParams:
     door_gap: float = 0.04         # eshik/teshiklarni yopish (rasm o'lchamiga nisbatan)
     min_room: float = 0.0015       # eng kichik xona maydoni (rasm maydoniga nisbatan)
     detect_blue: bool = True       # ko'k ruchka belgilarini topish
-    detect_black: bool = False     # qora qo'lyozma/matnni ham nomzod qilish (ishonchsiz)
-    blue_sensitivity: float = 0.5  # 0..1, kattaroq - ko'proq iz topadi
+    detect_black: bool = True      # qora ruchkadagi qo'lyozma (bosma chizmadan to'q va qalin izlar)
+    blue_sensitivity: float = 0.5  # 0..1, belgilarni topish sezgirligi (kattaroq - ko'proq)
     orthogonal: bool = True        # devorlarni gorizontal/vertikalga tekislash
 
 
@@ -45,6 +46,15 @@ class DetectParams:
 class DetectedRoom:
     points: list[tuple[float, float]]
     kind: str = "room"
+    shape: str = ""                # "ellipse" - doira/ellips (gumbaz)
+
+
+@dataclass
+class DetectedDoor:
+    x: float
+    y: float
+    angle: float                   # devor yo'nalishi (gradus)
+    width: float                   # piksel
 
 
 @dataclass
@@ -52,6 +62,134 @@ class DetectionResult:
     rooms: list[DetectedRoom] = field(default_factory=list)
     marks: list[tuple[float, float]] = field(default_factory=list)
     wall_thickness: float = 0.0
+    doors: list[DetectedDoor] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------- doira (gumbazli) binolar
+
+def ellipse_points(cx: float, cy: float, a: float, b: float, angle_deg: float = 0.0,
+                   n: int = 72) -> list[tuple[float, float]]:
+    """Ellips (doira) ko'pburchak sifatida: n ta nuqta."""
+    t = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    ca, sa = np.cos(np.radians(angle_deg)), np.sin(np.radians(angle_deg))
+    x, y = a * np.cos(t), b * np.sin(t)
+    return [(float(cx + xi * ca - yi * sa), float(cy + xi * sa + yi * ca)) for xi, yi in zip(x, y)]
+
+
+MIN_ENTRANCE_DEG = 15     # aylana devordagi kirish deb hisoblanadigan eng kichik uzilish (gradus)
+HOUGH_VOTES = 40          # aylana nomzodi uchun ovozlar (pastroq - ko'proq nomzod; har biri qat'iy tekshiriladi)
+
+
+def find_round_rooms(norm: np.ndarray, n_ang: int = 360) -> list[tuple[DetectedRoom, list[DetectedDoor]]]:
+    """Aylana devorli binolar (gumbaz, o'tish binosi).
+
+    1. Siyoh maskasidan Hough aylanalari - nomzodlar.
+    2. Markazdan nurlar bo'yicha birinchi devor chizig'i; ularning kamida 55% bir xil radiusda
+       bo'lsa - haqiqiy aylana devor (to'rtburchak rejada bunday bo'lmaydi). Nuqtalarga ellips moslanadi.
+    3. Ichki chiziq uzilgan keng yoylar (>= 15°) - kirish/chiqish eshiklari.
+    """
+    # siyoh maskasi to'liq o'lchamda (ingichka chiziqlar yo'qolmasin), keyin tezlik uchun ~1000 pikselga
+    # kichraytiriladi; natija qayta kattalashtiriladi
+    block = max(15, int(max(norm.shape) * 0.02)) | 1
+    mask = cv2.adaptiveThreshold(norm, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, block, 10)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+    k0 = min(1.0, 1000 / max(norm.shape))
+    if k0 < 1:
+        mask = ((cv2.resize(mask, None, fx=k0, fy=k0, interpolation=cv2.INTER_AREA) > 40) * 255).astype(np.uint8)
+    h, w = mask.shape
+    small = min(h, w)
+    blur = cv2.GaussianBlur(mask, (9, 9), 2)
+    cs = cv2.HoughCircles(blur, cv2.HOUGH_GRADIENT, dp=2, minDist=small * 0.2, param1=80, param2=HOUGH_VOTES,
+                          minRadius=int(small * 0.08), maxRadius=int(small * 0.5))
+    if cs is None:
+        return []
+    angs = np.linspace(0, 2 * np.pi, n_ang, endpoint=False)
+    found: list[tuple[DetectedRoom, list[DetectedDoor]]] = []
+    centers: list[tuple[float, float, float]] = []
+    for cx, cy, r in cs[0][:8]:
+        if any(np.hypot(cx - x, cy - y) < max(rr, r) for x, y, rr in centers):
+            continue                                # shu binoning boshqa aylanasi
+        rs = np.arange(int(r * 0.6), int(r * 1.3))
+        first = np.full(n_ang, np.nan)
+        for i, a in enumerate(angs):
+            xs = (cx + rs * np.cos(a)).astype(int)
+            ys = (cy + rs * np.sin(a)).astype(int)
+            ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+            hit = np.nonzero(mask[ys[ok], xs[ok]] > 0)[0]
+            if hit.size:
+                first[i] = rs[ok][hit[0]]
+        if np.all(np.isnan(first)):
+            continue
+        med = np.nanmedian(first)
+        good = np.abs(np.nan_to_num(first, nan=-1e9) - med) < med * 0.06
+        if good.mean() < 0.55:
+            continue
+        # devor chizig'i to'rt chorakning har birida bo'lishi kerak (tasodifiy mos kelish emas)
+        quarters = good.reshape(4, -1).mean(1)
+        if quarters.min() < 0.35:
+            continue
+        pts = np.stack([cx + first[good] * np.cos(angs[good]), cy + first[good] * np.sin(angs[good])], 1)
+        (ex, ey), (ea, eb), eang = cv2.fitEllipse(pts.astype(np.float32))
+        a, b = ea / 2, eb / 2
+        if min(a, b) / max(a, b) < 0.7 or min(a, b) < small * 0.08:
+            continue
+        # nuqtalar ellipsga aniq tushishi kerak (silliq aylana devor)
+        t = np.radians(eang)
+        dx, dy = pts[:, 0] - ex, pts[:, 1] - ey
+        u, v = dx * np.cos(t) + dy * np.sin(t), -dx * np.sin(t) + dy * np.cos(t)
+        resid = np.abs(np.sqrt((u / a) ** 2 + (v / b) ** 2) - 1)
+        if np.median(resid) > 0.02:
+            continue
+        # ichi deyarli bo'sh bo'lishi kerak (faqat xona raqami/maydoni yozuvi) - rejadagi devorlar emas
+        inner = np.zeros_like(mask)
+        cv2.ellipse(inner, ((float(ex), float(ey)), (float(ea * 0.85), float(eb * 0.85)), float(eang)), 255, -1)
+        if (mask[inner > 0] > 0).mean() > 0.04:
+            continue
+        room = DetectedRoom(points=ellipse_points(ex, ey, a, b, eang), kind="dome", shape="ellipse")
+        # kirishlar: devor halqasida (ichki chiziqdan 10% tashqarigacha) siyoh deyarli yo'q burchaklar;
+        # yaqin bo'laklar birlashtiriladi (kirish ustidagi yoy chiziqlari ba'zan tegib turadi)
+        t = np.radians(eang)
+        rel = angs - t
+        r_th = (a * b) / np.sqrt((b * np.cos(rel)) ** 2 + (a * np.sin(rel)) ** 2)
+        bad = np.zeros(n_ang, np.uint8)
+        for i, ang in enumerate(angs):
+            rs2 = np.arange(r_th[i] * 0.97, r_th[i] * 1.10)
+            xs = (ex + rs2 * np.cos(ang)).astype(int)
+            ys = (ey + rs2 * np.sin(ang)).astype(int)
+            ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+            if ok.any() and (mask[ys[ok], xs[ok]] > 0).mean() < 0.02:
+                bad[i] = 1
+        k = 7
+        ext = np.concatenate([bad[-k:], bad, bad[:k]])
+        closed = cv2.morphologyEx(ext.reshape(1, -1), cv2.MORPH_CLOSE, np.ones((1, k), np.uint8)).ravel()[k:-k]
+        doors: list[DetectedDoor] = []
+        if closed.all():
+            closed[:] = 0
+        start = int(np.argmin(closed))              # yaxshi joydan boshlab aylanib chiqish
+        rolled = np.roll(closed, -start)
+        j = 0
+        step = 360.0 / n_ang
+        while j < n_ang:
+            if rolled[j]:
+                e = j
+                while e < n_ang and rolled[e]:
+                    e += 1
+                span = (e - j) * step
+                if span >= MIN_ENTRANCE_DEG:
+                    mid = np.radians((start + (j + e - 1) / 2) * step)
+                    rad = (a + b) / 2
+                    px, py = ex + rad * np.cos(mid), ey + rad * np.sin(mid)
+                    width = 2 * rad * np.sin(np.radians(span / 2)) * 0.9
+                    doors.append(DetectedDoor(float(px), float(py), float(np.degrees(mid) + 90), float(width)))
+                j = e
+            else:
+                j += 1
+        found.append((room, doors))
+        centers.append((ex, ey, max(a, b)))
+    if k0 < 1:
+        found = [(DetectedRoom(points=[(x / k0, y / k0) for x, y in rm.points], kind=rm.kind, shape=rm.shape),
+                  [DetectedDoor(d.x / k0, d.y / k0, d.angle, d.width / k0) for d in ds]) for rm, ds in found]
+    return found
 
 
 # ---------------------------------------------------------------- rasm I/O
@@ -345,13 +483,13 @@ def detect(img: np.ndarray, params: DetectParams | None = None) -> DetectionResu
     big = max(h, w)
     result = DetectionResult()
 
-    # --- ko'k ruchka
+    # --- AT belgilari (ko'k va qora ruchka) - alohida modul (marks.py), natija asl rasm piksellarida
     bmask = blue_mask(work, p.blue_sensitivity)
-    if p.detect_blue:
-        join = max(5, int(big * 0.012)) | 1
-        marks = cluster_blobs(bmask, join, min_area=max(6, int(big * 0.004)),
-                              max_area=int(h * w * 0.01))
-        result.marks.extend(marks)
+    if p.detect_blue or p.detect_black:
+        from .marks import MarkParams, detect_marks
+        found = detect_marks(img, MarkParams(blue=p.detect_blue, black=p.detect_black,
+                                             sensitivity=p.blue_sensitivity))
+        result.marks.extend((m.x * scale, m.y * scale) for m in found)   # pastda / scale qilinadi
 
     # --- qora chiziqlar (ko'k izlar olib tashlanadi)
     gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
@@ -395,13 +533,8 @@ def detect(img: np.ndarray, params: DetectParams | None = None) -> DetectionResu
     is_text[0] = False
     is_wall = ~is_text
     is_wall[0] = False
-    text = (is_text[labels] * 255).astype(np.uint8)
     walls = (is_wall[labels] * 255).astype(np.uint8)
 
-    if p.detect_black:
-        join = max(5, int(big * 0.01)) | 1
-        result.marks.extend(cluster_blobs(text, join, min_area=max(8, int(big * 0.005)),
-                                          max_area=int(h * w * 0.004)))
 
     # Faqat to'g'ri (gorizontal/vertikal) chiziqlar - devorlar. Egri eshik yoylari va
     # qiya shtrixlar tushib qoladi, aks holda ular koridorni bo'laklab yuboradi.
@@ -495,6 +628,19 @@ def detect(img: np.ndarray, params: DetectParams | None = None) -> DetectionResu
         kind = "corridor" if aspect >= 3.2 or solidity < 0.6 else "room"
         pts = [(px / scale, py / scale) for px, py in pts]
         rooms.append(DetectedRoom(points=pts, kind=kind))
+
+    # Doira (gumbazli) binolar: aylana ichidagi bo'lak-bo'lak xonalar o'rniga bitta doira xona
+    for rnd, doors in find_round_rooms(norm):
+        poly = np.array(rnd.points, np.float32)
+        rooms = [rm for rm in rooms
+                 if cv2.pointPolygonTest(poly, tuple(map(float, np.mean(np.array(rm.points) * scale, 0))), False) < 0]
+        # gumbaz yonidagi mayda "xonalar" - o'lcham chiziqlari, ustunlar va yozuvlar orasidagi bo'shliqlar
+        dome_area = cv2.contourArea(poly)
+        rooms = [rm for rm in rooms
+                 if cv2.contourArea(np.array(rm.points, np.float32) * scale) >= dome_area * 0.15]
+        rooms.append(DetectedRoom(points=[(x / scale, y / scale) for x, y in rnd.points], kind=rnd.kind,
+                                  shape=rnd.shape))
+        result.doors += [DetectedDoor(d.x / scale, d.y / scale, d.angle, d.width / scale) for d in doors]
 
     # Yuqoridan pastga, chapdan o'ngga tartiblash (raqamlash uchun)
     rooms.sort(key=lambda r: (round(min(q[1] for q in r.points) / (big / scale * 0.05)),
