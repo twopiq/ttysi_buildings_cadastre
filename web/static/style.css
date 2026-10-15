@@ -37,6 +37,34 @@ button { cursor: pointer; }
 .crumbs { font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumbs a { color: var(--primary); text-decoration: none; }
 .ver { color: var(--ink-3); font-size: 12px; }
+.user { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 18px; height: 36px; padding: 0 12px;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu { position: fixed; right: 12px; top: 56px; z-index: 15; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 8px; display: flex; flex-direction: column; min-width: 200px; }
+.menu a, .menu button { text-align: left; padding: 10px 12px; border: 0; background: transparent; border-radius: 8px;
+  color: var(--ink); text-decoration: none; }
+.menu a:hover, .menu button:hover { background: var(--primary-soft); }
+.menu .muted { padding: 6px 12px; }
+.list-page { overflow: auto; padding: 24px 16px 40px; }
+.list-page > * { max-width: 900px; margin-left: auto; margin-right: auto; }
+.list-page h1 { font-size: 24px; margin-top: 0; }
+.tbl { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 12px; overflow: hidden; margin-bottom: 20px; }
+.tbl td, .tbl th { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; }
+.tbl th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.tbl button { border: 0; background: transparent; color: var(--primary); font-weight: 600; padding: 4px 6px; }
+.tbl button.del { color: var(--danger); }
+.user-form { display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; padding: 16px; }
+.user-form input, .user-form select, .login input { padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); }
+.user-form button[type=button] { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 10px; height: 44px; padding: 0 16px; }
+.jr { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.jr .t { color: var(--ink-3); flex: none; width: 118px; }
+.journal { font-size: 12px; }
+.journal b { display: block; margin: 4px 0; font-size: 12px; color: var(--ink-3); }
+.journal .jr { font-size: 12px; padding: 4px 0; }
+.journal .jr .t { width: 64px; }
+.readonly .palette, .readonly .plan-mode, .readonly #sheet-del, .readonly #sheet-save { display: none !important; }
+.readonly .sheet-types button, .readonly .sheet-row input, .readonly #sheet-note { pointer-events: none; }
 
 .page { flex: 1; min-height: 0; }
 #view-home { overflow: auto; padding: 24px 16px 40px; }
@@ -88,7 +116,7 @@ a.card { color: inherit; text-decoration: none; }
 }
 .bgtoggle { font-size: 14px; }
 .hint {
-  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); max-width: calc(100% - 24px);
+  position: absolute; left: 12px; top: 14px; max-width: calc(100% - 230px);
   background: rgba(20, 26, 34, .85); color: #fff; padding: 6px 12px; border-radius: 16px; font-size: 13px; pointer-events: none;
 }
 .hint:empty { display: none; }
@@ -128,6 +156,7 @@ a.card { color: inherit; text-decoration: none; }
 }
 .primary { background: var(--primary); color: #fff; border: 0; border-radius: 10px; height: 44px; padding: 0 20px; font-weight: 600; }
 .danger { background: transparent; color: var(--danger); border: 1px solid currentColor; border-radius: 10px; height: 44px; padding: 0 16px; }
+#login-title { font-size: 18px; }
 .err { color: var(--danger); font-size: 13px; min-height: 1em; }
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 40px); opacity: 0; transition: .2s;
@@ -150,7 +179,7 @@ a.card { color: inherit; text-decoration: none; }
   }
   .palette { grid-template-columns: repeat(6, 1fr); width: 100%; gap: 6px; }
   .palette button { height: 48px; font-size: 13px; }
-  .stats, .report { display: none; }
+  .stats, .report, .journal { display: none; }
   .plan-mode { flex: 1; }
   .next { flex: 1; }
   .sheet { align-items: flex-end; }

@@ -14,7 +14,14 @@
   <button class="logo" id="home" aria-label="Bosh sahifa">AT</button>
   <div class="crumbs" id="crumbs">TTYSI Binolar kadastri</div>
   <span class="ver" id="ver"></span>
+  <button class="user" id="user" hidden></button>
 </header>
+<div class="menu" id="user-menu" hidden>
+  <div class="muted" id="user-role"></div>
+  <a href="#/users" id="menu-users" hidden>Foydalanuvchilar</a>
+  <a href="#/journal" id="menu-journal" hidden>O'zgarishlar jurnali</a>
+  <button id="logout">Chiqish</button>
+</div>
 
 <main id="view-home" class="page">
   <div class="home-head">
@@ -43,8 +50,30 @@
       <button class="next" id="next" hidden></button>
       <div class="stats" id="stats"></div>
       <a class="report" id="report" download>Excel hisobot</a>
+      <div class="journal" id="b-journal"></div>
     </aside>
   </div>
+</main>
+
+<main id="view-users" class="page list-page" hidden>
+  <h1>Foydalanuvchilar</h1>
+  <p class="muted">Ko'ruvchi — faqat ko'radi va hisobot oladi. Tahrirlovchi — AT belgilarini kiritadi.
+    Administrator — hammasi va foydalanuvchilarni boshqaradi.</p>
+  <table class="tbl" id="users-tbl"></table>
+  <form class="user-form" id="user-form">
+    <b id="uf-title">Yangi foydalanuvchi</b>
+    <input id="uf-login" placeholder="Login (masalan: aziz)" autocomplete="off" required>
+    <input id="uf-name" placeholder="Ism familiya (ixtiyoriy)" autocomplete="off">
+    <select id="uf-role"></select>
+    <input id="uf-pass" type="password" placeholder="Parol (kamida 6 belgi)" autocomplete="new-password">
+    <div class="sheet-row"><button class="primary">Saqlash</button><button type="button" id="uf-new">Yangi</button></div>
+    <div class="err" id="uf-err"></div>
+  </form>
+</main>
+
+<main id="view-journal" class="page list-page" hidden>
+  <h1>O'zgarishlar jurnali</h1>
+  <div id="journal-list"></div>
 </main>
 
 <div class="sheet" id="sheet" hidden>
@@ -66,9 +95,12 @@
 
 <div class="login" id="login" hidden>
   <form class="sheet-card" id="login-form">
-    <b>Kirish kodi</b>
-    <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Kod">
-    <button class="primary">Kirish</button>
+    <b id="login-title">Kirish</b>
+    <p class="muted" id="login-note"></p>
+    <input id="lg-login" placeholder="Login" autocomplete="username" autocapitalize="none">
+    <input id="lg-name" placeholder="Ism familiya (ixtiyoriy)" hidden>
+    <input id="pin" type="password" autocomplete="current-password" placeholder="Parol">
+    <button class="primary" id="login-btn">Kirish</button>
     <div class="err" id="login-err"></div>
   </form>
 </div>

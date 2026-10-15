@@ -107,3 +107,55 @@ def test_web_pin(tmp_path):
     assert c.post("/api/login", json={"pin": "0000"}).status_code == 401
     assert c.post("/api/login", json={"pin": "4321"}).status_code == 200
     assert c.get("/api/workspace").status_code == 200                       # cookie bilan
+
+
+def test_web_users_roles_and_journal(tmp_path):
+    from web.auth import Store
+    ws = _workspace(tmp_path)
+    c = TestClient(create_app(str(ws), pin=""))
+    me = c.get("/api/me").json()
+    assert me["mode"] == "open" and me["setup"]                  # foydalanuvchi yo'q - shu kompyuterdan sozlash
+    assert c.post("/api/setup", json={"login": "Admin", "password": "123"}).status_code == 422   # qisqa parol
+    r = c.post("/api/setup", json={"login": "Admin", "password": "maxfiy123", "name": "Bosh admin"})
+    assert r.status_code == 200 and r.json()["user"]["role"] == "admin"
+    assert c.post("/api/setup", json={"login": "x", "password": "maxfiy123"}).status_code == 409
+    assert c.get("/api/me").json()["user"]["login"] == "admin"
+
+    other = TestClient(create_app(str(ws)))                       # boshqa brauzer - kirmagan
+    assert other.get("/api/workspace").status_code == 401
+    assert other.post("/api/login", json={"login": "admin", "password": "noto'g'ri"}).status_code == 401
+
+    # admin xodimlarni qo'shadi
+    assert c.post("/api/users", json={"login": "aziz", "role": "editor", "password": "parol123"}).status_code == 200
+    assert c.post("/api/users", json={"login": "kozim", "role": "viewer", "password": "parol123"}).status_code == 200
+    assert c.post("/api/users", json={"login": "admin", "role": "viewer"}).status_code == 422   # oxirgi admin
+    assert {u["login"] for u in c.get("/api/users").json()["users"]} == {"admin", "aziz", "kozim"}
+
+    # ko'ruvchi: ko'radi, lekin o'zgartira olmaydi
+    v = TestClient(create_app(str(ws)))
+    assert v.post("/api/login", json={"login": "KOZIM", "password": "parol123"}).status_code == 200
+    assert v.get("/api/workspace").status_code == 200
+    b = v.get("/api/building", params={"id": "3-bino.ttysi"}).json()
+    eid = b["floors"][0]["equipment"][1]["id"]
+    assert v.post("/api/equipment?id=3-bino.ttysi", json={"action": "delete", "floor": 0, "id": eid}).status_code == 403
+    assert v.get("/api/users").status_code == 403
+
+    # tahrirlovchi: o'zgartiradi, jurnalga yoziladi
+    e = TestClient(create_app(str(ws)))
+    e.post("/api/login", json={"login": "aziz", "password": "parol123"})
+    assert e.post("/api/equipment?id=3-bino.ttysi",
+                  json={"action": "update", "floor": 0, "id": eid, "code": "T"}).status_code == 200
+    j = e.get("/api/journal", params={"id": "3-bino.ttysi"}).json()["items"]
+    assert j[0]["user"] == "aziz" and j[0]["action"] == "update" and j[0]["was"] == "?" and j[0]["code"] == "T"
+    assert e.get("/api/journal").status_code == 403                # umumiy jurnal - faqat admin
+    assert any(r["action"] == "login" for r in c.get("/api/journal").json()["items"])
+
+    # parol o'zgarsa eski sessiya bekor bo'ladi; foydalanuvchi o'chirilsa ham
+    c.post("/api/users", json={"login": "aziz", "role": "editor", "password": "yangi12345"})
+    assert e.get("/api/workspace").status_code == 401
+    c.delete("/api/users", params={"login": "kozim"})
+    assert v.get("/api/workspace").status_code == 401
+    raw = (ws / ".ttysi-web" / "users.json").read_text()
+    assert "parol123" not in raw and "yangi12345" not in raw       # parollar ochiq saqlanmaydi
+    assert Store(str(ws)).check_password("aziz", "yangi12345")
+    assert [b["name"] for b in c.get("/api/workspace").json()["buildings"]] == ["3-bino"]   # .ttysi-web - tashkilot emas

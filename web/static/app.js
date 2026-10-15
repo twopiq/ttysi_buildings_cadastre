@@ -38,18 +38,121 @@ async function api(path, opts = {}) {
   return r;
 }
 
-// ------------------------------------------------------------------ kirish
-function showLogin() { $("login").hidden = false; $("pin").focus(); }
+// ------------------------------------------------------------------ kirish va foydalanuvchi
+let loginMode = "login";              // login (login+parol) / pin (kod) / setup (birinchi administrator)
+function showLogin(mode) {
+  loginMode = mode || (S.me && S.me.mode === "pin" ? "pin" : "login");
+  const setup = loginMode === "setup", pin = loginMode === "pin";
+  $("login-title").textContent = setup ? "Administrator yaratish" : "Kirish";
+  $("login-note").textContent = setup ? "Shundan keyin saytga faqat login va parol bilan kiriladi. Boshqa xodimlarni "
+    + "\"Foydalanuvchilar\" bo'limida qo'shasiz." : (pin ? "Kirish kodini kiriting" : "");
+  $("lg-login").hidden = pin; $("lg-name").hidden = !setup;
+  $("pin").placeholder = pin ? "Kod" : "Parol";
+  $("pin").autocomplete = setup ? "new-password" : "current-password";
+  $("login-btn").textContent = setup ? "Yaratish va kirish" : "Kirish";
+  $("login-err").textContent = "";
+  $("login").hidden = false; (pin ? $("pin") : $("lg-login")).focus();
+}
 $("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pin: $("pin").value }) });
-  if (r.ok) { $("login").hidden = true; route(); } else $("login-err").textContent = "Kod noto'g'ri";
+  const body = loginMode === "pin" ? { pin: $("pin").value }
+    : { login: $("lg-login").value.trim(), password: $("pin").value, name: $("lg-name").value };
+  const r = await fetch(loginMode === "setup" ? "/api/setup" : "/api/login", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (r.ok) { $("login").hidden = true; $("pin").value = ""; await loadMe(); route(); }
+  else { let m = "Xato"; try { m = (await r.json()).detail; } catch { /* */ } $("login-err").textContent = m; }
 });
+
+const ROLE = { viewer: "Ko'ruvchi", editor: "Tahrirlovchi", admin: "Administrator" };
+async function loadMe() {
+  S.me = await (await fetch("/api/me")).json();
+  const u = S.me.user;
+  document.body.classList.toggle("readonly", !!u && u.role === "viewer");
+  $("user").hidden = !u || S.me.mode === "open" && !S.me.setup;
+  $("user").textContent = u ? (S.me.mode === "users" ? (u.name || u.login) : "⚙") : "";
+  $("user-role").textContent = u ? (S.me.mode === "users" ? `${u.login} · ${ROLE[u.role]}` : "Foydalanuvchilarsiz rejim") : "";
+  const admin = u && u.role === "admin" && S.me.mode === "users";
+  $("menu-users").hidden = !admin; $("menu-journal").hidden = !admin;
+  $("logout").hidden = S.me.mode === "open";
+  let setupBtn = $("menu-setup");
+  if (S.me.setup && !setupBtn) {
+    setupBtn = el("button", { id: "menu-setup", text: "Administrator yaratish (parol bilan kirish)",
+      onclick: () => { $("user-menu").hidden = true; showLogin("setup"); } });
+    $("user-menu").insertBefore(setupBtn, $("logout"));
+  }
+  if (setupBtn) setupBtn.hidden = !S.me.setup;
+}
+const canEdit = () => S.me && S.me.user && S.me.user.role !== "viewer";
+$("user").onclick = (e) => { e.stopPropagation(); $("user-menu").hidden = !$("user-menu").hidden; };
+document.addEventListener("click", (e) => { if (!$("user-menu").contains(e.target)) $("user-menu").hidden = true; });
+$("user-menu").addEventListener("click", (e) => { if (e.target.tagName === "A") $("user-menu").hidden = true; });
+$("logout").onclick = async () => { await fetch("/api/logout", { method: "POST" }); location.hash = "#/"; location.reload(); };
+
+function journalText(r) {
+  const t = r.code ? type(r.code) : null;
+  switch (r.action) {
+    case "add": return `${r.floor}: ${t ? t.name : r.code} qo'shdi`;
+    case "update": return `${r.floor}: ${r.was ? (r.was === "?" ? "? → " : type(r.was).label + " → ") : ""}${t ? t.name : ""} o'zgartirdi`;
+    case "delete": return `${r.floor}: ${r.was ? type(r.was).name : "belgi"} o'chirdi`;
+    case "login": return "saytga kirdi";
+    case "user": return `foydalanuvchi ${r.target}: ${ROLE[r.role]}${r.password ? ", parol" : ""}`;
+    case "user_delete": return `foydalanuvchi ${r.target} o'chirildi`;
+    default: return r.action;
+  }
+}
+function journalRow(r, short) {
+  return el("div", { class: "jr" }, el("span", { class: "t", text: short ? r.t.slice(5, 16).replace(" ", " ") : r.t }),
+    el("span", {}, el("b", { text: r.user + " " }), journalText(r), !short && r.building ? el("span", { class: "muted", text: " · " + r.building.replace(/\.ttysi$/, "") }) : null));
+}
+async function loadBuildingJournal() {
+  const box = $("b-journal");
+  try {
+    const items = (await (await api(`/api/journal?id=${encodeURIComponent(S.b.id)}&limit=8`)).json()).items;
+    box.replaceChildren(...(items.length ? [el("b", { text: "So'nggi o'zgarishlar (sayt)" }), ...items.map((r) => journalRow(r, true))] : []));
+  } catch { box.replaceChildren(); }
+}
+
+async function showUsers() {
+  show("view-users"); $("crumbs").replaceChildren(el("a", { href: "#/", text: "Binolar" }), " › Foydalanuvchilar");
+  const data = await (await api("/api/users")).json();
+  $("uf-role").replaceChildren(...data.roles.map((r) => el("option", { value: r.role, text: r.name })));
+  $("users-tbl").replaceChildren(el("tr", {}, el("th", { text: "Login" }), el("th", { text: "Ism" }), el("th", { text: "Rol" }), el("th")),
+    ...data.users.map((u) => el("tr", {}, el("td", { text: u.login }), el("td", { text: u.name }), el("td", { text: ROLE[u.role] }),
+      el("td", {}, el("button", { text: "O'zgartirish", onclick: () => editUser(u) }),
+        u.login !== S.me.user.login ? el("button", { class: "del", text: "O'chirish", onclick: async () => {
+          if (!confirm(`${u.login} o'chirilsinmi?`)) return;
+          await api(`/api/users?login=${encodeURIComponent(u.login)}`, { method: "DELETE" }); showUsers();
+        } }) : null))));
+  editUser(null);
+}
+function editUser(u) {
+  $("uf-title").textContent = u ? `${u.login} — o'zgartirish` : "Yangi foydalanuvchi";
+  $("uf-login").value = u ? u.login : ""; $("uf-login").readOnly = !!u;
+  $("uf-name").value = u ? u.name : ""; $("uf-role").value = u ? u.role : "editor";
+  $("uf-pass").value = ""; $("uf-pass").placeholder = u ? "Yangi parol (o'zgartirmasangiz bo'sh qoldiring)" : "Parol (kamida 6 belgi)";
+  $("uf-err").textContent = "";
+}
+$("uf-new").onclick = () => editUser(null);
+$("user-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await api("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      login: $("uf-login").value.trim(), name: $("uf-name").value, role: $("uf-role").value, password: $("uf-pass").value || null }) });
+    toast("Saqlandi ✓"); showUsers();
+  } catch (err) { $("uf-err").textContent = err.message; }
+});
+async function showJournal() {
+  show("view-journal"); $("crumbs").replaceChildren(el("a", { href: "#/", text: "Binolar" }), " › Jurnal");
+  const items = (await (await api("/api/journal?limit=300")).json()).items;
+  $("journal-list").replaceChildren(...(items.length ? items.map((r) => journalRow(r, false)) : [el("div", { class: "empty", text: "Hali o'zgarish yo'q" })]));
+}
+function show(id) {
+  for (const v of ["view-home", "view-building", "view-users", "view-journal"]) $(v).hidden = v !== id;
+}
 
 // ------------------------------------------------------------------ bosh sahifa
 async function showHome() {
-  $("view-home").hidden = false; $("view-building").hidden = true;
+  show("view-home");
   $("crumbs").textContent = "TTYSI Binolar kadastri";
   S.tree = await (await api("/api/workspace")).json();
   renderTree();
@@ -91,7 +194,7 @@ $("search").addEventListener("input", () => S.tree && renderTree());
 
 // ------------------------------------------------------------------ bino va etaj
 async function showBuilding(id, fi) {
-  $("view-home").hidden = true; $("view-building").hidden = false;
+  show("view-building");
   if (!S.b || S.b.id !== id) {
     const r = await api(`/api/building?id=${encodeURIComponent(id)}`);
     setBuilding(await r.json(), r.headers.get("ETag"));
@@ -115,7 +218,7 @@ function renderBuilding(fit) {
   }, f.name, f.unknown ? el("span", { class: "badge", text: f.unknown }) : null)));
   $("report").href = `/api/report.xlsx?id=${encodeURIComponent(b.id)}`;
   if (!b.floors.length) { $("plan").replaceChildren(); $("hint").textContent = "Bu binoda etaj yo'q"; return; }
-  renderPalette(); renderPlan(); renderStats();
+  renderPalette(); renderPlan(); renderStats(); loadBuildingJournal();
   if (fit) fitView();
 }
 
@@ -263,6 +366,7 @@ window.addEventListener("resize", () => { if (!$("view-building").hidden && S.b)
 function onTap(g) {
   const hit = g.target.closest && g.target.closest(".eq");
   if (hit) { openSheet(hit.dataset.id); return; }
+  if (!canEdit()) return;
   if (!S.tool) { toast("Avval jihoz turini tanlang (pastdagi/yondagi rangli tugmalar)"); return; }
   const [x, y] = toPlan(g.x0, g.y0), f = floor();
   if (x < 0 || y < 0 || x > f.width || y > f.height) return;
@@ -334,14 +438,17 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { if (!$("sheet").hidden) closeSheet(); else { S.tool = null; renderPalette(); } }
   if ($("view-building").hidden || !$("sheet").hidden || e.target.tagName === "INPUT") return;
   const t = S.info.equipment.find((q) => q.key === e.key && q.code !== "?");
-  if (t) { S.tool = S.tool === t.code ? null : t.code; renderPalette(); }
+  if (t && canEdit()) { S.tool = S.tool === t.code ? null : t.code; renderPalette(); }
 });
 
 // ------------------------------------------------------------------ yo'naltirish
 async function route() {
   try {
     const m = location.hash.match(/^#\/b\/([^/]+)\/(\d+)/);
-    if (m) await showBuilding(decodeURIComponent(m[1]), +m[2]); else { S.b = null; await showHome(); }
+    if (m) await showBuilding(decodeURIComponent(m[1]), +m[2]);
+    else if (location.hash === "#/users") await showUsers();
+    else if (location.hash === "#/journal") await showJournal();
+    else { S.b = null; await showHome(); }
   } catch (e) {
     if (e.message !== "login") { toast(e.message); if (location.hash) location.hash = "#/"; }
   }
@@ -352,5 +459,6 @@ window.addEventListener("hashchange", route);
 (async () => {
   S.info = await (await fetch("/api/info")).json();
   $("ver").textContent = "v" + S.info.version;
-  route();
+  await loadMe();
+  if (!S.me.user) showLogin(); else route();
 })();

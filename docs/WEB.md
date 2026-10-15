@@ -33,24 +33,48 @@ web/
 - Excel hisobot: bino yoki butun tashkilot bo'yicha yuklab olish.
 - O'zgarishlar darhol `.ttysi` faylga yoziladi (desktop dastur ochadi). Bir vaqtda ikki joyda o'zgartirilsa
   (ETag/If-Match), keyingisi rad etiladi va sahifa yangilanadi — ma'lumot yo'qolmaydi.
-- Kirish kodi (`--pin`), telefon ekraniga qo'shish (PWA manifest).
+- Telefon ekraniga qo'shish (PWA manifest).
 
-Ishga tushirish (sinov uchun, ofis tarmog'ida):
+## 2-bosqich (qisman tayyor)
 
+- **Foydalanuvchilar va rollar:** Ko'ruvchi (faqat ko'radi, hisobot oladi), Tahrirlovchi (AT belgilarini
+  kiritadi), Administrator (hammasi + foydalanuvchilar). Parollar PBKDF2 xeshi bilan saqlanadi; parol
+  o'zgarsa yoki foydalanuvchi o'chirilsa, uning ochiq sessiyalari darhol bekor bo'ladi.
+  Birinchi administrator faqat server kompyuterining o'zida yaratiladi (`http://localhost:8000` →
+  yuqori o'ngdagi ⚙ → "Administrator yaratish") yoki buyruq bilan:
+  `python -m web.auth --workspace "D:\TTYSI Binolar" add admin --role admin`.
+- **O'zgarishlar jurnali:** kim, qachon, qaysi bino/etajda qaysi belgini qo'shgan/o'zgartirgan/o'chirgan.
+  Bino sahifasida — so'nggi o'zgarishlar, administratorda — to'liq jurnal.
+- **Desktop dastur bilan birga ishlash:** dastur faylning saytda o'zgarganini o'zi sezadi (har 5 soniyada,
+  oynaga qaytganda va saqlashdan oldin) va o'zgarishlarni qo'shib oladi — saytdagi belgilar endi
+  yo'qolmaydi. Ikkala joyda bitta belgi turlicha o'zgartirilsa, dasturdagisi qoladi.
+- Ma'lumotlar `<Binolar papkasi>/.ttysi-web/` da (users.json, journal.jsonl).
+- Qolgani: PostgreSQL va fayl ombori (ko'p serverli o'rnatish uchun), desktopda serverga ulanish.
+
+## Ishga tushirish
+
+**Windows (eng oson):** `web\start_web.bat` ni ikki marta bosing (Python 3.12 o'rnatilgan bo'lishi kerak).
+Binolar papkasi boshqa joyda bo'lsa: `web\start_web.bat "D:\TTYSI Binolar"`.
+
+**Qo'lda:**
 ```
 pip install -r web/requirements.txt
-python -m web.server --workspace "D:\TTYSI Binolar" --host 0.0.0.0 --pin 2468
+python -m web.server --workspace "D:\TTYSI Binolar" --host 0.0.0.0
 ```
 
-Telefon shu Wi-Fi tarmog'ida bo'lsa: `http://<kompyuter-IP>:8000`.
+**Server (Docker):**
+```
+docker build -f web/Dockerfile -t ttysi-web .
+docker run -d -p 8000:8000 -v "/srv/TTYSI Binolar:/data" --name ttysi-web ttysi-web
+docker exec -it ttysi-web python -m web.auth --workspace /data add admin --role admin
+```
 
-> Muhim: desktop dasturda bino ochiq turgan paytda saytda o'sha binoni o'zgartirmang — dastur saqlaganda
-> saytdagi o'zgarishlar ustidan yozib yuboradi. (2-bosqichda hal qilinadi.)
+Telefon shu tarmoqda bo'lsa: `http://<kompyuter-IP>:8000`. Foydalanuvchilar yaratilmaguncha sayt
+kirishsiz ochiq — tarmoqqa ochishdan oldin administrator yarating.
 
 ## Keyingi bosqichlar
 
-**2. Ko'p foydalanuvchi va server ma'lumotlar bazasi**
-- Foydalanuvchilar va rollar (admin / xodim / faqat ko'rish), parol bilan kirish, harakatlar jurnali.
+**2. Server ma'lumotlar bazasi** (foydalanuvchilar, rollar va jurnal — tayyor, yuqoriga qarang)
 - Ma'lumot: PostgreSQL (bino, etaj, xona, jihoz jadvallari) + kadastr rasmlari uchun fayl ombori (S3/MinIO).
   `.ttysi` — import/eksport formati bo'lib qoladi.
 - Desktop dastur bilan sinxronlash: "Serverga yuklash / serverdan olish", versiya va to'qnashuvlarni hal qilish.
@@ -88,4 +112,7 @@ Telefon shu Wi-Fi tarmog'ida bo'lsa: `http://<kompyuter-IP>:8000`.
 | `GET /api/floor-image?id=&floor=` | etajning kadastr rasmi |
 | `POST /api/equipment?id=` | belgi qo'shish / o'zgartirish / o'chirish (`If-Match`) |
 | `GET /api/report.xlsx?id=` yoki `?org=` | Excel hisobot |
-| `POST /api/login` | kirish kodi (agar berilgan bo'lsa) |
+| `GET /api/me`, `POST /api/login`, `POST /api/logout` | kim kirgan, kirish/chiqish |
+| `POST /api/setup` | birinchi administrator (faqat server kompyuteridan) |
+| `GET/POST/DELETE /api/users` | foydalanuvchilar (administrator) |
+| `GET /api/journal?id=` | o'zgarishlar jurnali (bino bo'yicha; umumiy — administrator) |
