@@ -6,7 +6,7 @@ import math
 import os
 from datetime import datetime
 
-from PySide6.QtCore import QPoint, QPointF, QSettings, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, QSize, Qt, QTimer
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QImage, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
@@ -19,6 +19,7 @@ from ..detection import DetectParams, decode_image, detect, encode_jpg, limit_si
 from ..equipment import BY_KEY, EQUIPMENT_TYPES, ROOM_KINDS, UNKNOWN, get_type
 from ..export import export_dxf, export_image, export_pdf, export_svg
 from ..geometry import bg_map, merge_rooms, split_room
+from ..merge import merge_equipment, snapshot
 from ..model import Building, Door, Equipment, Floor, Room
 from ..render import RenderOptions, equipment_counts, meter_px, wall_width
 from ..report import export_excel
@@ -95,6 +96,13 @@ class MainWindow(QMainWindow):
         self.updater = Updater(self)
         self.sc_actions: dict[str, QAction] = {}
         self.saved_at = None
+        # fayl boshqa joyda (saytda) o'zgartirilsa - o'zgarishlar birlashtiriladi, ustidan yozilmaydi
+        self.disk_sig = None
+        self.base_snap: dict = {}
+        self.sync_timer = QTimer(self)
+        self.sync_timer.setInterval(5000)
+        self.sync_timer.timeout.connect(self.sync_from_disk)
+        self.sync_timer.start()
         self._tabs_sig = None
         self.build_actions()
         self.pages = QStackedWidget()
@@ -2094,6 +2102,7 @@ class MainWindow(QMainWindow):
         self.histories.clear()
         self.bg_cache.clear()
         self.building.save(self.path)
+        self.track_file()
         remember(self.settings, self.building, self.path)
         self.refresh_all()
         return self.path
@@ -2153,6 +2162,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("last_dir", os.path.dirname(path))
         self.building = b
         self.path = path
+        self.track_file()
         remember(self.settings, b, path)
         self.histories.clear()
         self.bg_cache.clear()
@@ -2161,16 +2171,69 @@ class MainWindow(QMainWindow):
     def save_project(self) -> bool:
         if not self.path:
             return self.save_project_as()
+        self.sync_from_disk(force=True)            # saytdagi o'zgarishlar ustidan yozilmasin
         try:
             self.building.save(self.path)
         except Exception as e:
             QMessageBox.critical(self, "Saqlab bo'lmadi", str(e))
             return False
+        self.track_file()
         self.saved_at = datetime.now().strftime("%H:%M")
         remember(self.settings, self.building, self.path)
         self.set_dirty(False)
         self.statusBar().showMessage(f"Saqlandi: {self.path}", 5000)
         return True
+
+    # ---------------------------------------------------------------- sayt bilan birga ishlash
+    @staticmethod
+    def _file_sig(path: str):
+        try:
+            st = os.stat(path)
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+    def track_file(self):
+        """Joriy fayl holatini eslab qolish (diskdagi = dasturdagi)."""
+        self.disk_sig = self._file_sig(self.path) if self.path else None
+        self.base_snap = snapshot(self.building)
+
+    def sync_from_disk(self, force: bool = False):
+        """Fayl diskda (masalan saytda) o'zgargan bo'lsa - AT belgilaridagi o'zgarishlarni qo'shib olish.
+
+        Dasturdagi saqlanmagan o'zgarishlar saqlanadi; ikkala joyda turlicha o'zgargan belgida dasturdagisi qoladi.
+        """
+        if not self.path or self.disk_sig is None:
+            return None
+        if not force and (QApplication.activeModalWidget() is not None or QApplication.mouseButtons() != Qt.NoButton
+                          or self.pages.currentWidget() is not self.editor):
+            return None
+        sig = self._file_sig(self.path)
+        if sig is None or sig == self.disk_sig:
+            return None
+        try:
+            theirs = Building.load(self.path, images=False)
+        except Exception:
+            return None                              # yozilish o'rtasida - keyingi safar
+        res = merge_equipment(self.base_snap, self.building, theirs)
+        self.disk_sig = sig
+        self.base_snap = snapshot(theirs)
+        if res.total:
+            for f in self.building.floors:
+                if f.id in res.floors and f.id in self.histories:
+                    self.histories[f.id].push(f)
+            if self.floor is not None:
+                self.show_floor(self.floor, keep_view=True)
+            self.refresh_floor_list()
+            if not self.dirty and not res.conflicts:
+                self.base_snap = snapshot(self.building)
+            self.statusBar().showMessage(f"Saytda kiritilgan o'zgarishlar qo'shildi: {res.text()}", 10000)
+        return res
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() == QEvent.ActivationChange and self.isActiveWindow():
+            QTimer.singleShot(0, self.sync_from_disk)
 
     def save_project_as(self) -> bool:
         default = os.path.join(workspace(self.settings), safe_file_name(self.building.name) + ".ttysi")
