@@ -106,6 +106,7 @@ class MainWindow(QMainWindow):
         self.home.open_floor.connect(self.open_floor)
         self.home.new_building_in.connect(lambda org: self.new_building(org=org))
         self.home.org_report.connect(self.export_excel_org)
+        self.home.org_export.connect(lambda org: self.export_org_full(org))
         self.home.moved.connect(self.on_building_moved)
         self.pages.addWidget(self.home)
         self.editor = self.build_editor()
@@ -151,6 +152,7 @@ class MainWindow(QMainWindow):
         A(ex, "Excel hisobot - joriy bino...", self.export_excel_current, "Ctrl+R", "export.excel")
         A(ex, "Excel hisobot - bir nechta bino...", self.export_excel_many, None, "export.excel_many")
         A(ex, "Excel hisobot - butun tashkilot...", lambda: self.export_excel_org(), None, "export.excel_org")
+        A(ex, "Tashkilotni to'liq eksport qilish...", lambda: self.export_org_full(), None, "export.org_full")
         m.addSeparator()
         A(m, "Chiqish", self.close, QKeySequence.Quit, "file.quit")
 
@@ -1933,6 +1935,27 @@ class MainWindow(QMainWindow):
             if not path:
                 return None
         return self._write_excel(path, buildings, title=name)
+
+    def export_org_full(self, org: str | None = None, dialog_hook=None) -> list[str]:
+        """Tashkilotni to'liq eksport: barcha binolar PDF/rasm/DXF, Excel, loyiha fayllari (xohlansa ZIP)."""
+        from .org_export import OrgExportDialog, org_export_jobs
+        org = org or org_of(self.settings, self.path)
+        if not org:
+            QMessageBox.information(self, "Tashkilot eksporti",
+                                    "Bu bino tashkilotga kirmagan. Bosh sahifada tashkilot bo'limidagi "
+                                    "\"To'liq eksport\" tugmasidan foydalaning.")
+            return []
+        dlg = OrgExportDialog(org, self.settings, self)
+        if (dialog_hook(dlg) if dialog_hook else dlg.exec()) != QDialog.Accepted:
+            return []
+        dest = dlg.dest.text().strip()
+        self.settings.setValue("export_dir", dest)
+        cur = (os.path.abspath(self.path), self.building) if self.path and self.dirty else None
+        folder, jobs = org_export_jobs(org, dest, dlg.options(), cur)
+        saved = self._run_jobs(f"{os.path.basename(org)} — to'liq eksport", jobs)
+        if saved:
+            self.statusBar().showMessage(f"Tashkilot eksport qilindi: {folder}", 10000)
+        return saved
 
     def on_building_moved(self, old: str, new: str):
         """Bosh sahifada bino tashkilotga ko'chirildi - ochiq loyiha yo'lini yangilash."""

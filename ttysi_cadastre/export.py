@@ -69,14 +69,21 @@ def export_pdf(path: str, building: Building, floors: list[Floor], opts: RenderO
 
     progress(i, floor) - har bir sahifa oldidan chaqiriladi (jarayon oynasi uchun).
     """
+    export_pdf_pages(path, [(building, f) for f in floors], opts, page,
+                     None if progress is None else (lambda i, b, f: progress(i, f)), title=building.name)
+
+
+def export_pdf_pages(path: str, pages: list[tuple[Building, Floor]], opts: RenderOptions, page: str = "A3",
+                     progress=None, title: str = "") -> None:
+    """Bir nechta binoning etajlari bitta PDF'da (tashkilot eksporti). progress(i, building, floor)."""
     writer = QPdfWriter(path)
     writer.setResolution(200)
     size = QPageSize(QPageSize.A3 if page == "A3" else QPageSize.A4)
-    writer.setTitle(building.name)
+    writer.setTitle(title or (pages[0][0].name if pages else ""))
     p = None
-    for i, floor in enumerate(floors):
+    for i, (building, floor) in enumerate(pages):
         if progress is not None:
-            progress(i, floor)
+            progress(i, building, floor)
         orient = QPageLayout.Landscape if floor.width >= floor.height else QPageLayout.Portrait
         writer.setPageLayout(QPageLayout(size, orient, QMarginsF(0, 0, 0, 0)))
         if p is None:

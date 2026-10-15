@@ -28,6 +28,7 @@ class Job:
     run: Callable[[Callable[[str], None]], None]  # run(step) - step("2/5-sahifa") oraliq holat uchun
     error: str = ""
     done: bool = False
+    root: str = ""                                # berilsa: shu papka ichidagi yetishmagan papkalar yaratiladi
 
 
 def friendly_error(e: BaseException) -> str:
@@ -121,6 +122,8 @@ class ExportProgress(QDialog):
             self._step(f"{i + 1}/{len(todo)}: {job.label} — {os.path.basename(job.path)}")
             job.error = ""
             try:
+                if job.root and os.path.isdir(os.path.dirname(job.root)):
+                    os.makedirs(os.path.dirname(job.path), exist_ok=True)
                 check_writable(job.path)
                 job.run(lambda text, i=i, job=job: self._step(f"{i + 1}/{len(todo)}: {job.label} — {text}"))
                 if not os.path.exists(job.path) or os.path.getsize(job.path) == 0:

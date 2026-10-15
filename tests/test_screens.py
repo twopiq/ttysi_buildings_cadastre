@@ -285,3 +285,54 @@ def test_organizations(qapp, tmp_path):
     assert [b["name"] for b in scan(str(ws))] == ["1-bino", "2-bino", "3-bino", "4-bino"]
     assert os.path.dirname(w.path) == str(ws)
     _close(w)
+
+
+def test_organization_full_export(qapp, tmp_path):
+    """Tashkilotni to'liq eksport: Excel, umumiy va har bino PDF, PNG/DXF, loyiha fayllari, ZIP."""
+    import zipfile
+    from PySide6.QtWidgets import QDialog
+    from ttysi_cadastre.ui.home import WORKSPACE_KEY
+    w = _window()
+    w.settings.setValue(WORKSPACE_KEY, str(tmp_path / "Binolar"))
+    w.settings.remove("recent/projects")
+    paths = []
+    for n in (1, 2):
+        paths.append(w.create_building(f"{n}-bino"))
+        for k in (1, 2):
+            f = Floor(name=f"{k}-qavat", width=400, height=300, scale_m_per_px=0.05)
+            f.rooms = [Room(points=[(20, 20), (200, 20), (200, 200), (20, 200)], name="1")]
+            f.equipment = [Equipment(code="K", x=50, y=50)]
+            w.building.floors.append(f)
+        w.save_project()
+    w.dirty = False
+    w.show_home()
+    org = w.home.create_org("5-maktab", paths)
+    w.open_project(os.path.join(org, "2-bino.ttysi"))
+    w.building.floors[0].equipment.append(Equipment(code="T", x=80, y=80))   # saqlanmagan o'zgarish
+    w.dirty = True
+    out = tmp_path / "eksport"
+    out.mkdir()
+
+    def hook(dlg):
+        assert dlg.ok.isEnabled()
+        dlg.dest.setText(str(out))
+        for k in ("png", "dxf", "zip"):
+            dlg.c[k].setChecked(True)
+        return QDialog.Accepted
+    saved = w.export_org_full(org, dialog_hook=hook)
+    d = w.export_progress
+    assert d.state == "ok", [j.error for j in d.jobs]
+    folder = [p for p in out.iterdir() if p.is_dir()][0]
+    names = {str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file()}
+    assert {"5-maktab - hisobot.xlsx", "5-maktab - barcha binolar.pdf", "Tarkib.txt",
+            os.path.join("1-bino", "1-bino.pdf"), os.path.join("2-bino", "2-bino - 2-qavat.png"),
+            os.path.join("1-bino", "1-bino - 1-qavat.dxf"),
+            os.path.join("Loyiha fayllari", "2-bino.ttysi")} <= names
+    assert len(saved) == len(d.jobs) == 1 + 1 + 2 + 4 + 4 + 2 + 1 + 1
+    copy = Building.load(str(folder / "Loyiha fayllari" / "2-bino.ttysi"))
+    assert any(e.code == "T" for e in copy.floors[0].equipment)        # ochiq binoning o'zgarishlari ham
+    txt = (folder / "Tarkib.txt").read_text(encoding="utf-8")
+    assert "1-bino: 2 etaj" in txt and "hisobot.xlsx" in txt
+    z = zipfile.ZipFile(str(folder) + ".zip")
+    assert any(n.endswith("barcha binolar.pdf") for n in z.namelist())
+    _close(w)

@@ -443,6 +443,7 @@ class HomePage(QWidget):
     new_from_file = Signal(str)
     new_building_in = Signal(str)        # tashkilot papkasi
     org_report = Signal(str)             # tashkilot bo'yicha Excel hisobot
+    org_export = Signal(str)             # tashkilotni to'liq eksport
     moved = Signal(str, str)             # bino fayli ko'chirildi: eski, yangi yo'l
 
     def __init__(self, settings: QSettings, settings_menu: QMenu | None = None, parent=None):
@@ -719,16 +720,18 @@ class HomePage(QWidget):
         if unknown:
             h.addWidget(chip(f"{unknown} ta belgi kutmoqda", theme.WARN_BG, theme.WARN_FG))
         for text, slot in (("+ Bino", lambda _=False, p=o["path"]: self.new_building_in.emit(p)),
-                           ("Excel hisobot", lambda _=False, p=o["path"]: self.org_report.emit(p))):
+                           ("Excel hisobot", lambda _=False, p=o["path"]: self.org_report.emit(p)),
+                           ("To'liq eksport", lambda _=False, p=o["path"]: self.org_export.emit(p))):
             b = QPushButton(text)
             b.setObjectName("link")
             b.clicked.connect(slot)
-            b.setEnabled(text != "Excel hisobot" or bool(bs))
+            b.setEnabled(text == "+ Bino" or bool(bs))
             h.addWidget(b)
         more = QPushButton("⋯")
         more.setObjectName("link")
         more.setToolTip("Tashkilot amallari")
         m = QMenu(more)
+        m.addAction("To'liq eksport (PDF, Excel, DXF, ZIP)...", lambda p=o["path"]: self.org_export.emit(p))
         m.addAction("Binolarni qo'shish...", lambda p=o["path"]: self.add_to_org(p))
         m.addAction("Nomini o'zgartirish...", lambda p=o["path"]: self.rename_org(p))
         m.addAction("Papkani ochish", lambda p=o["path"]: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
